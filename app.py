@@ -313,6 +313,15 @@ def selected_candidate_summary(candidate: BatmanCandidate) -> str:
     )
 
 
+def risk_chart_spot_price(
+    manual_chart_price: float | None,
+    result_underlying_price: float | None,
+    manual_underlying_price: float | None,
+) -> float:
+    """Choose the best available spot price for the risk chart."""
+    return float(manual_chart_price or result_underlying_price or manual_underlying_price or 0.0)
+
+
 def show_risk_chart(candidate: BatmanCandidate, spot_price: float) -> None:
     """Render an approximate OptionNet-style risk chart for one candidate."""
     frame = candidate_risk_frame(candidate, spot_price=spot_price, price_points=121, projection_count=5)
@@ -423,6 +432,7 @@ def run_ibkr_scan(settings: ScanSettings, connection: dict[str, Any], status_box
             return client.fetch_quotes_for_expiry(expiry, chain, settings, underlying_price, status_box.info)
 
         result = scan_from_quote_fetcher(settings, expiries, fetch_quotes, status_box.info)
+        result.underlying_price = underlying_price
         status_box.info("saving scan")
         save_scan_history(settings, result.candidates[:20])
         return result
@@ -481,6 +491,8 @@ def main() -> None:
                 "cached_quotes": cache_stats["quote_count"],
                 "cached_expiries": cache_stats["expiry_count"],
                 "newest_update": cache_stats["newest_update"],
+                "underlying_price": cache_stats["underlying_price"],
+                "underlying_price_updated_at": cache_stats["underlying_price_updated_at"],
                 "collector": collector_status,
             }
         )
@@ -578,8 +590,12 @@ def main() -> None:
         )
         return
 
-    spot_price = connection.get("risk_chart_spot") or connection.get("manual_underlying_price") or 0.0
-    show_results_workspace(result, float(spot_price))
+    spot_price = risk_chart_spot_price(
+        connection.get("risk_chart_spot"),
+        result.underlying_price,
+        connection.get("manual_underlying_price"),
+    )
+    show_results_workspace(result, spot_price)
 
     with st.expander("All Candidate Details", expanded=False):
         show_candidate_details(result.candidates)

@@ -15,7 +15,7 @@ from scanner.contracts import days_to_expiry
 from scanner.ibkr_client import IBKRClient, resolve_underlying_price
 from scanner.models import ScanSettings
 from scanner.option_chain import filter_expiries
-from scanner.quote_cache import DEFAULT_QUOTE_CACHE_PATH, save_quotes
+from scanner.quote_cache import DEFAULT_QUOTE_CACHE_PATH, save_cache_underlying_price, save_quotes
 
 
 StatusUpdater = Callable[..., None]
@@ -130,6 +130,7 @@ def collect_quote_cache(
 
         ibkr_price = client.get_underlying_price(underlying)
         underlying_price = resolve_underlying_price(ibkr_price, connection.get("manual_underlying_price"))
+        save_cache_underlying_price(settings.symbol, underlying_price, db_path=db_path)
 
         expiries_by_dte = filter_expiries(sorted(chain.expirations), settings)
         # Refresh nearer expiries first so the cache becomes useful sooner.
@@ -145,4 +146,3 @@ def collect_quote_cache(
         return total_saved
     finally:
         client.disconnect()
-

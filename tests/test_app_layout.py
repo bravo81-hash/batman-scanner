@@ -1,6 +1,6 @@
 import unittest
 
-from app import candidate_picker_label, candidate_rows, selected_candidate_summary
+from app import candidate_picker_label, candidate_rows, risk_chart_spot_price, selected_candidate_summary
 from scanner.batman import build_batman_candidate
 from scanner.models import OptionQuote, ScanSettings
 
@@ -96,6 +96,11 @@ class AppLayoutTests(unittest.TestCase):
         self.assertIn("D/T ratio", row)
         self.assertIn("theta score", row)
         self.assertIn("D/T score", row)
+
+    def test_risk_chart_spot_prefers_manual_then_result_then_connection_manual(self) -> None:
+        self.assertEqual(risk_chart_spot_price(10, 20, 30), 10)
+        self.assertEqual(risk_chart_spot_price(0, 20, 30), 20)
+        self.assertEqual(risk_chart_spot_price(0, None, 30), 30)
 
 
 if __name__ == "__main__":

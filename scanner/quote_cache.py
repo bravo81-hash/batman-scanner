@@ -46,6 +46,15 @@ def init_quote_cache(db_path: str = DEFAULT_QUOTE_CACHE_PATH) -> None:
         }
         if "implied_vol" not in existing_columns:
             connection.execute("ALTER TABLE option_quote_cache ADD COLUMN implied_vol REAL")
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS quote_cache_meta (
+                symbol TEXT PRIMARY KEY,
+                underlying_price REAL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
 
 
 def save_quotes(
@@ -97,6 +106,30 @@ def save_quotes(
     return len(rows)
 
 
+def save_cache_underlying_price(
+    symbol: str,
+    underlying_price: float | None,
+    db_path: str = DEFAULT_QUOTE_CACHE_PATH,
+    timestamp: datetime | None = None,
+) -> None:
+    """Store the spot price used when refreshing the quote cache."""
+    if underlying_price is None or underlying_price <= 0:
+        return
+    init_quote_cache(db_path)
+    updated_at = (timestamp or datetime.now()).isoformat(timespec="seconds")
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO quote_cache_meta (symbol, underlying_price, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(symbol) DO UPDATE SET
+                underlying_price = excluded.underlying_price,
+                updated_at = excluded.updated_at
+            """,
+            (symbol, float(underlying_price), updated_at),
+        )
+
+
 def _is_fresh(updated_at: str, max_age_seconds: int) -> bool:
     try:
         timestamp = datetime.fromisoformat(updated_at)
@@ -104,6 +137,26 @@ def _is_fresh(updated_at: str, max_age_seconds: int) -> bool:
         return False
     age = datetime.now() - timestamp
     return age.total_seconds() <= max_age_seconds
+
+
+def load_cache_underlying_price(
+    symbol: str,
+    max_age_seconds: int,
+    db_path: str = DEFAULT_QUOTE_CACHE_PATH,
+) -> float | None:
+    """Load a fresh cached spot price for the symbol."""
+    init_quote_cache(db_path)
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT underlying_price, updated_at FROM quote_cache_meta WHERE symbol = ?",
+            (symbol,),
+        ).fetchone()
+    if row is None:
+        return None
+    underlying_price, updated_at = row
+    if not _is_fresh(str(updated_at), max_age_seconds):
+        return None
+    return float(underlying_price) if underlying_price and underlying_price > 0 else None
 
 
 def load_cached_quotes(
@@ -163,7 +216,7 @@ def list_cached_expiries(
     return sorted(expiry for expiry, updated_at in rows if _is_fresh(str(updated_at), max_age_seconds))
 
 
-def quote_cache_stats(symbol: str, db_path: str = DEFAULT_QUOTE_CACHE_PATH) -> dict[str, int | str]:
+def quote_cache_stats(symbol: str, db_path: str = DEFAULT_QUOTE_CACHE_PATH) -> dict[str, int | float | str | None]:
     """Return lightweight cache statistics for the UI."""
     init_quote_cache(db_path)
     with sqlite3.connect(db_path) as connection:
@@ -179,10 +232,16 @@ def quote_cache_stats(symbol: str, db_path: str = DEFAULT_QUOTE_CACHE_PATH) -> d
             "SELECT MAX(updated_at) FROM option_quote_cache WHERE symbol = ?",
             (symbol,),
         ).fetchone()[0]
+        meta = connection.execute(
+            "SELECT underlying_price, updated_at FROM quote_cache_meta WHERE symbol = ?",
+            (symbol,),
+        ).fetchone()
     return {
         "quote_count": int(quote_count or 0),
         "expiry_count": int(expiry_count or 0),
         "newest_update": newest or "",
+        "underlying_price": float(meta[0]) if meta and meta[0] else None,
+        "underlying_price_updated_at": meta[1] if meta else "",
     }
 
 
@@ -204,6 +263,7 @@ def cache_scan_result(
         return load_cached_quotes(settings.symbol, expiry, max_age_seconds, db_path)
 
     result = scan_from_quote_fetcher(settings, expiries, fetch_quotes)
+    result.underlying_price = load_cache_underlying_price(settings.symbol, max_age_seconds, db_path)
     if not result.candidates:
         result.warnings.append("Cached quotes were available, but no candidates matched the filters.")
     return result

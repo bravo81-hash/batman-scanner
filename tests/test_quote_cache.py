@@ -6,8 +6,10 @@ import unittest
 from scanner.models import OptionQuote, ScanSettings
 from scanner.quote_cache import (
     cache_scan_result,
+    load_cache_underlying_price,
     load_cached_quotes,
     quote_cache_stats,
+    save_cache_underlying_price,
     save_quotes,
 )
 
@@ -68,6 +70,16 @@ class QuoteCacheTests(unittest.TestCase):
             self.assertEqual(stats["quote_count"], 2)
             self.assertEqual(stats["expiry_count"], 2)
 
+    def test_save_and_load_cache_underlying_price(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = str(Path(tmp) / "quotes.db")
+
+            save_cache_underlying_price("SPX", 7275.5, db_path=db_path)
+
+            self.assertEqual(load_cache_underlying_price("SPX", max_age_seconds=3600, db_path=db_path), 7275.5)
+            stats = quote_cache_stats("SPX", db_path=db_path)
+            self.assertEqual(stats["underlying_price"], 7275.5)
+
     def test_cache_scan_result_builds_from_cached_quotes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = str(Path(tmp) / "quotes.db")
@@ -78,10 +90,12 @@ class QuoteCacheTests(unittest.TestCase):
             ]
             back = [make_quote("20270416", 5600, 33, bid=12, ask=13)]
             save_quotes("SPX", front + back, db_path=db_path)
+            save_cache_underlying_price("SPX", 7275.5, db_path=db_path)
 
             result = cache_scan_result(ScanSettings(), max_age_seconds=3600, db_path=db_path)
 
             self.assertGreaterEqual(len(result.candidates), 1)
+            self.assertEqual(result.underlying_price, 7275.5)
             self.assertTrue(result.warnings == [] or isinstance(result.warnings[0], str))
 
 
