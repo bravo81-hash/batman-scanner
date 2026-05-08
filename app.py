@@ -6,15 +6,22 @@ import pandas as pd
 import streamlit as st
 
 from scanner.config import ibkr_config, load_config, settings_from_config
+from scanner.collector import QuoteCacheCollector
 from scanner.database import save_scan_history
 from scanner.export import candidates_to_csv
 from scanner.ibkr_client import IBKRClient, resolve_underlying_price, runtime_diagnostics, summarize_chain
 from scanner.mock_data import mock_scan
 from scanner.models import BatmanCandidate, ScanResult, ScanSettings
 from scanner.option_chain import scan_from_quote_fetcher
+from scanner.quote_cache import cache_scan_result, quote_cache_stats
 
 
 st.set_page_config(page_title="Batman Scanner", layout="wide")
+
+
+@st.cache_resource
+def get_quote_collector() -> QuoteCacheCollector:
+    return QuoteCacheCollector()
 
 
 def candidate_rows(candidates: list[BatmanCandidate]) -> list[dict[str, Any]]:
@@ -109,6 +116,19 @@ def sidebar_settings(defaults: ScanSettings, ib_defaults: dict[str, Any]) -> tup
     target_trade_delta = st.sidebar.slider("Target total trade delta", min_value=1.0, max_value=5.0, value=float(defaults.target_trade_delta), step=0.5)
     min_credit = st.sidebar.number_input("Minimum entry credit", value=float(defaults.min_credit), step=0.5)
     max_results = st.sidebar.number_input("Max results", min_value=1, max_value=100, value=defaults.max_results)
+
+    st.sidebar.header("Quote Cache")
+    use_quote_cache = st.sidebar.checkbox(
+        "Run scan from quote cache",
+        value=True,
+        help="Use locally cached quotes for faster ranking. Refresh the cache separately from IBKR.",
+    )
+    cache_max_age_minutes = st.sidebar.number_input(
+        "Cache max age minutes",
+        min_value=1,
+        max_value=1440,
+        value=30,
+    )
     max_contracts_per_expiry = st.sidebar.number_input(
         "Max contracts per expiry",
         min_value=20,
@@ -150,6 +170,8 @@ def sidebar_settings(defaults: ScanSettings, ib_defaults: dict[str, Any]) -> tup
         "client_id": int(client_id),
         "market_data_type": market_data_type,
         "manual_underlying_price": float(manual_underlying_price),
+        "use_quote_cache": bool(use_quote_cache),
+        "cache_max_age_seconds": int(cache_max_age_minutes) * 60,
     }
 
 
@@ -253,6 +275,7 @@ def run_ibkr_preflight(settings: ScanSettings, connection: dict[str, Any], statu
 def main() -> None:
     config = load_config()
     settings, connection = sidebar_settings(settings_from_config(config), ibkr_config(config))
+    collector = get_quote_collector()
 
     st.title("Batman Scanner")
     st.caption("Scanner only. No order placement, no live trade modification.")
@@ -266,12 +289,27 @@ def main() -> None:
         st.session_state.ibkr_preflight_summary = None
 
     status_box = st.empty()
-    col1, col2, col3 = st.columns([1, 1, 1])
+    cache_stats = quote_cache_stats(settings.symbol)
+    collector_status = collector.status()
+    with st.expander("Quote cache status", expanded=collector_status["running"]):
+        st.write(
+            {
+                "symbol": settings.symbol,
+                "cached_quotes": cache_stats["quote_count"],
+                "cached_expiries": cache_stats["expiry_count"],
+                "newest_update": cache_stats["newest_update"],
+                "collector": collector_status,
+            }
+        )
+
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
     with col1:
         connect_clicked = st.button("Connect to IBKR")
     with col2:
         preflight_clicked = st.button("Preflight IBKR")
     with col3:
+        refresh_cache_clicked = st.button("Refresh Quote Cache")
+    with col4:
         run_clicked = st.button("Run Scan")
 
     mock_mode = st.checkbox("Use MOCK DATA for UI testing", value=False)
@@ -286,6 +324,14 @@ def main() -> None:
         except Exception as error:
             status_box.warning(f"Not connected to IBKR: {error}")
             st.info("Start TWS or IB Gateway, enable API access, then retry. The app can still be tested with MOCK DATA.")
+
+    if refresh_cache_clicked:
+        started = collector.start(settings, connection)
+        if started:
+            status_box.success("Quote cache refresh started in the background.")
+            st.info("You can keep the page open and refresh periodically to see cache progress.")
+        else:
+            status_box.warning("Quote cache refresh is already running.")
 
     if preflight_clicked:
         try:
@@ -306,6 +352,13 @@ def main() -> None:
             if mock_mode:
                 status_box.info("building candidates from MOCK DATA")
                 result = mock_scan(settings)
+                save_scan_history(settings, result.candidates[:20])
+            elif connection["use_quote_cache"]:
+                status_box.info("building candidates from quote cache")
+                result = cache_scan_result(
+                    settings,
+                    max_age_seconds=connection["cache_max_age_seconds"],
+                )
                 save_scan_history(settings, result.candidates[:20])
             else:
                 result = run_ibkr_scan(settings, connection, status_box)

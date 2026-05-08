@@ -25,6 +25,9 @@ Continue building the local Python project at batman-scanner. It is a macOS Stre
 - [x] Add clearly labelled mock data mode for UI testing.
 - [x] Add bounded live market-data request setting.
 - [x] Add IBKR preflight check before full scan.
+- [x] Add local SQLite quote cache.
+- [x] Add background quote-cache collector.
+- [x] Add cache-backed scan path for faster repeated ranking.
 - [ ] Test with TWS or IB Gateway paper account.
 - [ ] Tune strike filtering and market data pacing after real IBKR testing.
 
@@ -69,8 +72,9 @@ Open the local Streamlit URL printed in the terminal.
 5. If the market is closed and `underlying_price` is blank, this is normal. You can enter a `Manual underlying price` in the sidebar for strike filtering, and try `Frozen` or `Delayed frozen` in `Market data type`, but live bid/ask/Greeks may still be unavailable until market data is active.
 6. Keep `Market data batch size` below your IBKR line limit. The default is `80`, which stays below a 100-line account limit.
 7. Set `Max contracts per expiry` low, such as `40` or `60`, for the first live scan.
-8. Run a small SPX scan and watch the progress messages.
-9. Check skipped-contract warnings. Missing Greeks usually means market data permissions, delayed data, or IBKR model data is unavailable.
+8. Click `Refresh Quote Cache` and let the background collector populate local SQLite quotes.
+9. Leave `Run scan from quote cache` checked and click `Run Scan`.
+10. Check skipped-contract warnings. Missing Greeks usually means market data permissions, delayed data, or IBKR model data is unavailable.
 
 ## What Is Included
 
@@ -88,12 +92,14 @@ Open the local Streamlit URL printed in the terminal.
   - DTE anchor score.
   - Spread penalty.
 - SQLite scan history in `data/scan_history.db`.
+- SQLite quote cache in `data/quote_cache.db`.
 - CSV export for top candidates.
 - IBKR preflight check for underlying, chain metadata, and underlying price.
 - `Max contracts per expiry` setting to reduce the first live scan size.
 - `Market data batch size` setting to keep simultaneous IBKR market-data requests below account line limits.
 - Optional `Manual underlying price` fallback for off-hours strike filtering.
 - `Market data type` selector for live, frozen, delayed, and delayed-frozen IBKR data requests.
+- Background `Refresh Quote Cache` workflow so repeated scans rank from local cached quotes instead of blocking on IBKR.
 
 ## What Is Intentionally Not Included Yet
 
