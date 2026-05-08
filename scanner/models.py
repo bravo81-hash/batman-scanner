@@ -117,7 +117,10 @@ class BatmanCandidate:
 
     @property
     def position_delta(self) -> float:
-        return self.total_delta * 100
+        # Deltas are stored in 100-delta style, for example 54 instead of 0.54.
+        # After leg quantities offset each other, total_delta is already the
+        # position delta used by options tools.
+        return self.total_delta
 
     @property
     def position_theta(self) -> float:

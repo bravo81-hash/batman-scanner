@@ -77,7 +77,7 @@ def candidate_picker_label(candidate: BatmanCandidate) -> str:
         f"#{candidate.rank} | score {candidate.score:.4f} | "
         f"{candidate.front_dte}d/{candidate.back_dte}d | "
         f"{strikes} | credit {candidate.entry_credit:.2f} | "
-        f"pos delta {candidate.position_delta:.0f} | "
+        f"delta {candidate.position_delta:.2f} | "
         f"theta {candidate.position_theta:.2f}"
     )
 
@@ -306,7 +306,7 @@ def selected_candidate_summary(candidate: BatmanCandidate) -> str:
     return (
         f"Score {candidate.score:.4f} | "
         f"Credit {candidate.entry_credit:.2f} | "
-        f"Pos Delta {candidate.position_delta:.2f} | "
+        f"Delta {candidate.position_delta:.2f} | "
         f"Pos Theta {candidate.position_theta:.2f} | "
         f"D/T {candidate.delta_theta_ratio:.4f} | "
         f"Vega {candidate.position_vega:.2f}"

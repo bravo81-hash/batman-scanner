@@ -135,9 +135,9 @@ class BatmanCoreTests(unittest.TestCase):
         )
 
         assert candidate is not None
-        self.assertAlmostEqual(candidate.position_delta, 300)
+        self.assertAlmostEqual(candidate.position_delta, 3)
         self.assertAlmostEqual(candidate.position_theta, 30)
-        self.assertAlmostEqual(candidate.delta_theta_ratio, 10)
+        self.assertAlmostEqual(candidate.delta_theta_ratio, 0.1)
 
     def test_csv_export_includes_each_leg(self) -> None:
         settings = ScanSettings()

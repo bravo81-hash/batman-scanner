@@ -6,7 +6,8 @@ visualisation only and are not a substitute for final OptionNet Explorer checks.
 
 from __future__ import annotations
 
-from math import erf, exp, log, pi, sqrt
+from functools import lru_cache
+from math import erf, exp, isclose, log, pi, sqrt
 
 import pandas as pd
 
@@ -70,6 +71,32 @@ def black_scholes_call_greeks(
     return {"delta": delta, "gamma": gamma, "theta": theta, "vega": vega}
 
 
+def implied_vol_from_call_price(
+    underlying_price: float,
+    strike: float,
+    years_to_expiry: float,
+    call_price: float,
+    fallback_iv: float,
+) -> float:
+    """Find the IV that reproduces an observed call price in this model."""
+    intrinsic = max(underlying_price - strike, 0.0)
+    if years_to_expiry <= 0 or call_price <= intrinsic:
+        return fallback_iv
+
+    low = 0.0001
+    high = 5.0
+    for _ in range(80):
+        mid = (low + high) / 2
+        model_price = black_scholes_call_price(underlying_price, strike, years_to_expiry, mid)
+        if isclose(model_price, call_price, rel_tol=1e-8, abs_tol=1e-8):
+            return mid
+        if model_price < call_price:
+            low = mid
+        else:
+            high = mid
+    return (low + high) / 2
+
+
 def projection_days(final_dte: int, points: int = 5) -> list[int]:
     """Return evenly spaced projection days from T+0 through final expiry."""
     if points <= 1:
@@ -94,21 +121,20 @@ def candidate_risk_frame(
         step = (high_price - low_price) / (price_points - 1)
         prices = [low_price + (step * index) for index in range(price_points)]
 
-    final_dte = max(candidate.front_dte, candidate.back_dte)
+    final_dte = candidate.front_dte
     projections = projection_days(final_dte, projection_count)
-    opening_value = _candidate_mark_value(candidate, spot_price, elapsed_days=0)
     rows: list[dict[str, float | str | int]] = []
 
     for elapsed in projections:
         for price in prices:
-            mark_value = _candidate_mark_value(candidate, price, elapsed)
-            greeks = _candidate_greeks(candidate, price, elapsed)
+            mark_value = _candidate_mark_value(candidate, price, elapsed, spot_price)
+            greeks = _candidate_greeks(candidate, price, elapsed, spot_price)
             rows.append(
                 {
                     "underlying_price": price,
                     "projection_day": elapsed,
                     "projection_label": f"T+{elapsed}",
-                    "pnl": mark_value - opening_value,
+                    "pnl": (candidate.entry_credit * CONTRACT_MULTIPLIER) + mark_value,
                     "delta": greeks["delta"],
                     "gamma": greeks["gamma"],
                     "theta": greeks["theta"],
@@ -131,27 +157,85 @@ def _leg_iv(leg: BatmanLeg) -> float:
     return leg.quote.implied_vol or 0.20
 
 
-def _candidate_mark_value(candidate: BatmanCandidate, underlying_price: float, elapsed_days: int) -> float:
+@lru_cache(maxsize=4096)
+def _calibrated_leg_iv(
+    strike: float,
+    mid: float,
+    starting_years_to_expiry: float,
+    fallback_iv: float,
+    spot_price: float,
+) -> float:
+    return implied_vol_from_call_price(
+        spot_price,
+        strike,
+        starting_years_to_expiry,
+        mid,
+        fallback_iv,
+    )
+
+
+def _leg_calibrated_iv(candidate: BatmanCandidate, leg: BatmanLeg, spot_price: float) -> float:
+    fallback_iv = _leg_iv(leg)
+    observed_mid = leg.quote.mid
+    if observed_mid is None or observed_mid <= 0:
+        return fallback_iv
+    return _calibrated_leg_iv(
+        leg.quote.strike,
+        observed_mid,
+        _leg_years_to_expiry(candidate, leg, 0),
+        fallback_iv,
+        spot_price,
+    )
+
+
+def _scenario_leg_price(
+    candidate: BatmanCandidate,
+    leg: BatmanLeg,
+    underlying_price: float,
+    elapsed_days: int,
+    spot_price: float,
+) -> float:
+    """Return a scenario option price using IV calibrated to observed mid."""
+    years_to_expiry = _leg_years_to_expiry(candidate, leg, elapsed_days)
+    intrinsic = max(underlying_price - leg.quote.strike, 0.0)
+    if years_to_expiry <= 0:
+        return intrinsic
+
+    scenario_price = black_scholes_call_price(
+        underlying_price,
+        leg.quote.strike,
+        years_to_expiry,
+        _leg_calibrated_iv(candidate, leg, spot_price),
+    )
+    return max(scenario_price, intrinsic, 0.0)
+
+
+def _candidate_mark_value(
+    candidate: BatmanCandidate,
+    underlying_price: float,
+    elapsed_days: int,
+    spot_price: float,
+) -> float:
     total = 0.0
     for leg in candidate.legs:
-        price = black_scholes_call_price(
-            underlying_price,
-            leg.quote.strike,
-            _leg_years_to_expiry(candidate, leg, elapsed_days),
-            _leg_iv(leg),
-        )
+        price = _scenario_leg_price(candidate, leg, underlying_price, elapsed_days, spot_price)
         total += leg.signed_quantity * price * CONTRACT_MULTIPLIER
     return total
 
 
-def _candidate_greeks(candidate: BatmanCandidate, underlying_price: float, elapsed_days: int) -> dict[str, float]:
+def _candidate_greeks(
+    candidate: BatmanCandidate,
+    underlying_price: float,
+    elapsed_days: int,
+    spot_price: float,
+) -> dict[str, float]:
     totals = {"delta": 0.0, "gamma": 0.0, "theta": 0.0, "vega": 0.0}
     for leg in candidate.legs:
         greeks = black_scholes_call_greeks(
             underlying_price,
             leg.quote.strike,
             _leg_years_to_expiry(candidate, leg, elapsed_days),
-            _leg_iv(leg),
+            _leg_calibrated_iv(candidate, leg, spot_price),
         )
         totals["delta"] += leg.signed_quantity * greeks["delta"] * CONTRACT_MULTIPLIER
         totals["gamma"] += leg.signed_quantity * greeks["gamma"] * CONTRACT_MULTIPLIER
