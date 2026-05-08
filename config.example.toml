@@ -22,3 +22,4 @@ min_credit = 0
 max_results = 10
 max_contracts_per_expiry = 120
 market_data_batch_size = 80
+scoring_mode = "theta_first"

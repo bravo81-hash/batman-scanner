@@ -106,6 +106,8 @@ class BatmanCandidate:
     credit_score: float = 0.0
     dte_anchor_score: float = 0.0
     spread_penalty: float = 0.0
+    theta_score: float = 0.0
+    delta_theta_ratio_score: float = 0.0
     rank: int = 0
     created_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
 
@@ -113,8 +115,40 @@ class BatmanCandidate:
     def legs(self) -> list[BatmanLeg]:
         return [self.sc_high, self.lc_mid, self.sc_low]
 
+    @property
+    def position_delta(self) -> float:
+        return self.total_delta * 100
+
+    @property
+    def position_theta(self) -> float:
+        return self.total_theta * 100
+
+    @property
+    def position_vega(self) -> float:
+        return self.total_vega * 100
+
+    @property
+    def position_gamma(self) -> float:
+        return self.total_gamma * 100
+
+    @property
+    def theta_drag(self) -> float:
+        return max(0.0, -self.position_theta)
+
+    @property
+    def delta_theta_ratio(self) -> float:
+        if abs(self.position_theta) < 1e-9:
+            return 0.0
+        return self.position_delta / abs(self.position_theta)
+
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
+        data["position_delta"] = self.position_delta
+        data["position_theta"] = self.position_theta
+        data["position_vega"] = self.position_vega
+        data["position_gamma"] = self.position_gamma
+        data["theta_drag"] = self.theta_drag
+        data["delta_theta_ratio"] = self.delta_theta_ratio
         for leg_name in ("sc_high", "lc_mid", "sc_low"):
             data[leg_name]["quote"].pop("contract", None)
         return data
@@ -142,6 +176,7 @@ class ScanSettings:
     market_data_batch_size: int = 80
     allowed_delta_deviation: float = 5.0
     target_credit: float = 10.0
+    scoring_mode: str = "theta_first"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

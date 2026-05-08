@@ -49,10 +49,17 @@ def candidate_rows(candidates: list[BatmanCandidate]) -> list[dict[str, Any]]:
                 "total theta": round(candidate.total_theta, 4),
                 "total vega": round(candidate.total_vega, 4),
                 "total gamma": round(candidate.total_gamma, 5),
+                "position delta": round(candidate.position_delta, 2),
+                "position theta": round(candidate.position_theta, 2),
+                "position vega": round(candidate.position_vega, 2),
+                "position gamma": round(candidate.position_gamma, 4),
+                "D/T ratio": round(candidate.delta_theta_ratio, 4),
                 "estimated credit": round(candidate.entry_credit, 2),
                 "spread penalty": round(candidate.spread_penalty, 4),
                 "delta score": round(candidate.delta_score, 4),
+                "theta score": round(candidate.theta_score, 4),
                 "credit score": round(candidate.credit_score, 4),
+                "D/T score": round(candidate.delta_theta_ratio_score, 4),
                 "DTE anchor score": round(candidate.dte_anchor_score, 4),
             }
         )
@@ -70,7 +77,8 @@ def candidate_picker_label(candidate: BatmanCandidate) -> str:
         f"#{candidate.rank} | score {candidate.score:.4f} | "
         f"{candidate.front_dte}d/{candidate.back_dte}d | "
         f"{strikes} | credit {candidate.entry_credit:.2f} | "
-        f"delta {candidate.total_delta:.2f}"
+        f"pos delta {candidate.position_delta:.0f} | "
+        f"theta {candidate.position_theta:.2f}"
     )
 
 
@@ -141,6 +149,21 @@ def sidebar_settings(defaults: ScanSettings, ib_defaults: dict[str, Any]) -> tup
     target_trade_delta = st.sidebar.slider("Target total trade delta", min_value=1.0, max_value=5.0, value=float(defaults.target_trade_delta), step=0.5)
     min_credit = st.sidebar.number_input("Minimum entry credit", value=float(defaults.min_credit), step=0.5)
     max_results = st.sidebar.number_input("Max results", min_value=1, max_value=100, value=defaults.max_results)
+    scoring_options = {
+        "Theta-first Batman": "theta_first",
+        "Balanced delta/credit": "balanced",
+        "Delta/theta ratio": "delta_theta_ratio",
+    }
+    default_scoring_label = next(
+        (label for label, value in scoring_options.items() if value == defaults.scoring_mode),
+        "Theta-first Batman",
+    )
+    scoring_mode_label = st.sidebar.selectbox(
+        "Scoring mode",
+        options=list(scoring_options.keys()),
+        index=list(scoring_options.keys()).index(default_scoring_label),
+        help="Theta-first ranks mostly by position theta, then credit. Balanced keeps the original delta/credit/DTE score.",
+    )
 
     st.sidebar.header("Quote Cache")
     use_quote_cache = st.sidebar.checkbox(
@@ -188,6 +211,7 @@ def sidebar_settings(defaults: ScanSettings, ib_defaults: dict[str, Any]) -> tup
         max_results=int(max_results),
         max_contracts_per_expiry=int(max_contracts_per_expiry),
         market_data_batch_size=int(market_data_batch_size),
+        scoring_mode=scoring_options[scoring_mode_label],
     )
     return settings, {
         "host": host,
@@ -211,8 +235,15 @@ def show_candidate_details(candidates: list[BatmanCandidate]) -> None:
                     "total_theta": round(candidate.total_theta, 4),
                     "total_vega": round(candidate.total_vega, 4),
                     "total_gamma": round(candidate.total_gamma, 5),
+                    "position_delta": round(candidate.position_delta, 2),
+                    "position_theta": round(candidate.position_theta, 2),
+                    "position_vega": round(candidate.position_vega, 2),
+                    "position_gamma": round(candidate.position_gamma, 4),
+                    "delta_theta_ratio": round(candidate.delta_theta_ratio, 4),
                     "delta_score": round(candidate.delta_score, 4),
+                    "theta_score": round(candidate.theta_score, 4),
                     "credit_score": round(candidate.credit_score, 4),
+                    "delta_theta_ratio_score": round(candidate.delta_theta_ratio_score, 4),
                     "dte_anchor_score": round(candidate.dte_anchor_score, 4),
                     "spread_penalty": round(candidate.spread_penalty, 4),
                 }
@@ -271,9 +302,10 @@ def selected_candidate_summary(candidate: BatmanCandidate) -> str:
     return (
         f"Score {candidate.score:.4f} | "
         f"Credit {candidate.entry_credit:.2f} | "
-        f"Delta {candidate.total_delta:.2f} | "
-        f"Theta {candidate.total_theta:.2f} | "
-        f"Vega {candidate.total_vega:.2f}"
+        f"Pos Delta {candidate.position_delta:.2f} | "
+        f"Pos Theta {candidate.position_theta:.2f} | "
+        f"D/T {candidate.delta_theta_ratio:.4f} | "
+        f"Vega {candidate.position_vega:.2f}"
     )
 
 

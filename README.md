@@ -88,11 +88,23 @@ Open the local Streamlit URL printed in the terminal.
   - `LC_Mid`: buy 2 back-expiry calls near `SC_High delta - offset`.
   - `SC_Low`: sell 1 front-expiry call chosen to bring total trade delta near the target.
 - Hard filters for DTE order/gap, positive credit, positive total delta, and required quote/Greek data.
+- Scoring modes:
+  - `Theta-first Batman` ranks mostly by position theta, then entry credit.
+  - `Balanced delta/credit` keeps the original delta, credit, and DTE-anchor score.
+  - `Delta/theta ratio` ranks by position-delta efficiency versus theta.
 - Score components displayed in the UI:
   - Delta score.
+  - Theta score.
   - Credit score.
+  - D/T ratio score.
   - DTE anchor score.
   - Spread penalty.
+- Position-dollar Greeks displayed in the UI:
+  - Position delta.
+  - Position theta.
+  - Position vega.
+  - Position gamma.
+  - D/T ratio.
 - SQLite scan history in `data/scan_history.db`.
 - SQLite quote cache in `data/quote_cache.db`.
 - CSV export for top candidates.
