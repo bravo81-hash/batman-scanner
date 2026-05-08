@@ -1,0 +1,2 @@
+"""Batman Scanner package."""
+

@@ -1,0 +1,157 @@
+"""Shared data models for the Batman Scanner.
+
+The scanner keeps these models simple on purpose. Dataclasses are easy to
+inspect, serialize, and explain when debugging scan output.
+"""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
+from typing import Any
+
+
+@dataclass
+class OptionQuote:
+    symbol: str
+    expiry: str
+    strike: float
+    right: str
+    bid: float | None
+    ask: float | None
+    mid: float | None
+    delta: float | None
+    theta: float | None = None
+    vega: float | None = None
+    gamma: float | None = None
+    contract: Any | None = None
+
+    def has_required_data(self) -> bool:
+        """Return True when this quote can be used in candidate math."""
+        return (
+            self.bid is not None
+            and self.ask is not None
+            and self.mid is not None
+            and self.delta is not None
+            and self.bid >= 0
+            and self.ask > 0
+            and self.ask >= self.bid
+        )
+
+    def missing_data_reasons(self) -> list[str]:
+        """Explain why a quote cannot be used in candidate math."""
+        reasons: list[str] = []
+        if self.bid is None or self.ask is None or self.mid is None:
+            reasons.append("missing_bid_ask")
+        elif self.bid < 0 or self.ask <= 0 or self.ask < self.bid:
+            reasons.append("invalid_bid_ask")
+        if self.delta is None:
+            reasons.append("missing_delta")
+        return reasons
+
+    @property
+    def spread(self) -> float:
+        if self.bid is None or self.ask is None:
+            return 0.0
+        return max(self.ask - self.bid, 0.0)
+
+
+@dataclass
+class BatmanLeg:
+    name: str
+    action: str
+    quantity: int
+    quote: OptionQuote
+
+    @property
+    def signed_quantity(self) -> int:
+        return self.quantity if self.action == "BUY" else -self.quantity
+
+    @property
+    def delta_contribution(self) -> float:
+        return self.signed_quantity * (self.quote.delta or 0.0)
+
+    @property
+    def theta_contribution(self) -> float:
+        return self.signed_quantity * (self.quote.theta or 0.0)
+
+    @property
+    def vega_contribution(self) -> float:
+        return self.signed_quantity * (self.quote.vega or 0.0)
+
+    @property
+    def gamma_contribution(self) -> float:
+        return self.signed_quantity * (self.quote.gamma or 0.0)
+
+
+@dataclass
+class BatmanCandidate:
+    symbol: str
+    front_expiry: str
+    back_expiry: str
+    front_dte: int
+    back_dte: int
+    sc_high: BatmanLeg
+    lc_mid: BatmanLeg
+    sc_low: BatmanLeg
+    entry_credit: float
+    total_delta: float
+    total_theta: float
+    total_vega: float
+    total_gamma: float
+    average_spread_ratio: float
+    score: float = 0.0
+    delta_score: float = 0.0
+    credit_score: float = 0.0
+    dte_anchor_score: float = 0.0
+    spread_penalty: float = 0.0
+    rank: int = 0
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
+
+    @property
+    def legs(self) -> list[BatmanLeg]:
+        return [self.sc_high, self.lc_mid, self.sc_low]
+
+    def to_dict(self) -> dict[str, Any]:
+        data = asdict(self)
+        for leg_name in ("sc_high", "lc_mid", "sc_low"):
+            data[leg_name]["quote"].pop("contract", None)
+        return data
+
+
+@dataclass
+class ScanSettings:
+    symbol: str = "SPX"
+    exchange: str = "CBOE"
+    currency: str = "USD"
+    min_front_dte: int = 80
+    max_dte: int = 600
+    min_dte_gap: int = 50
+    max_dte_gap: int = 200
+    sc_high_min_delta: int = 45
+    sc_high_max_delta: int = 60
+    sc_high_delta_step: int = 5
+    lc_mid_min_offset: int = 18
+    lc_mid_max_offset: int = 26
+    lc_mid_offset_step: int = 2
+    target_trade_delta: float = 3.0
+    min_credit: float = 0.0
+    max_results: int = 10
+    max_contracts_per_expiry: int = 120
+    market_data_batch_size: int = 80
+    allowed_delta_deviation: float = 5.0
+    target_credit: float = 10.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ScanResult:
+    settings: ScanSettings
+    candidates: list[BatmanCandidate]
+    skipped_missing_data: int = 0
+    skipped_filters: int = 0
+    quote_counts_by_expiry: dict[str, dict[str, int]] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
+    mock: bool = False

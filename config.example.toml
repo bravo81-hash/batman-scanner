@@ -1,0 +1,24 @@
+[ibkr]
+host = "127.0.0.1"
+port = 7497
+client_id = 11
+
+[scanner]
+symbol = "SPX"
+exchange = "CBOE"
+currency = "USD"
+min_front_dte = 80
+max_dte = 600
+min_dte_gap = 50
+max_dte_gap = 200
+sc_high_min_delta = 45
+sc_high_max_delta = 60
+sc_high_delta_step = 5
+lc_mid_min_offset = 18
+lc_mid_max_offset = 26
+lc_mid_offset_step = 2
+target_trade_delta = 3
+min_credit = 0
+max_results = 10
+max_contracts_per_expiry = 120
+market_data_batch_size = 80
