@@ -128,6 +128,10 @@ Open the local Streamlit URL printed in the terminal.
 
 The built-in risk chart uses a simple Black-Scholes approximation from cached bid/ask, strike, DTE, and implied volatility. If IBKR does not provide implied volatility, the chart falls back to a default IV assumption. Use this chart to compare shapes quickly, then manually model preferred setups in OptionNet Explorer before trading.
 
+## Troubleshooting No Candidates
+
+If the scan reports no candidates during market hours, open `Scan diagnostics` and check the minimum usable delta. Batman scans need far-OTM calls for the low short leg. If the minimum usable delta is still high, for example above 20, refresh the quote cache so the scanner collects a wider upside strike range.
+
 ## What Is Intentionally Not Included Yet
 
 - No order placement.

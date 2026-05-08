@@ -24,6 +24,19 @@ class LiveScanHelperTests(unittest.TestCase):
         self.assertGreaterEqual(min(selected), 5500 * 0.75)
         self.assertLessEqual(max(selected), 5500 * 1.45)
 
+    def test_select_candidate_strikes_keeps_far_otm_calls_for_batman_low_short(self) -> None:
+        strikes = list(range(4000, 10001, 5))
+
+        selected = select_candidate_strikes(strikes, underlying_price=7275, max_contracts=120)
+
+        self.assertEqual(len(selected), 120)
+        self.assertIn(7275.0, selected)
+        self.assertGreaterEqual(max(selected), 9000)
+        self.assertGreater(
+            len([strike for strike in selected if strike > 7275]),
+            len([strike for strike in selected if strike < 7275]),
+        )
+
     def test_select_candidate_strikes_without_price_still_limits_contract_count(self) -> None:
         strikes = list(range(100, 1000, 5))
 

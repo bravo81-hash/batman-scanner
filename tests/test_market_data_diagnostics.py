@@ -57,6 +57,10 @@ class MarketDataDiagnosticsTests(unittest.TestCase):
         self.assertEqual(counts["usable"], 1)
         self.assertEqual(counts["missing_bid_ask"], 1)
         self.assertEqual(counts["missing_delta"], 2)
+        self.assertEqual(counts["min_usable_strike"], 6200)
+        self.assertEqual(counts["max_usable_strike"], 6200)
+        self.assertEqual(counts["min_usable_delta"], 10.0)
+        self.assertEqual(counts["max_usable_delta"], 10.0)
 
 
 if __name__ == "__main__":

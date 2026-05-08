@@ -98,6 +98,10 @@ def quote_count_rows(result: ScanResult) -> list[dict[str, Any]]:
                 "missing bid/ask": counts.get("missing_bid_ask", 0),
                 "invalid bid/ask": counts.get("invalid_bid_ask", 0),
                 "missing delta": counts.get("missing_delta", 0),
+                "min usable strike": counts.get("min_usable_strike", 0),
+                "max usable strike": counts.get("max_usable_strike", 0),
+                "min usable delta": round(counts.get("min_usable_delta", 0), 2),
+                "max usable delta": round(counts.get("max_usable_delta", 0), 2),
                 "usable rate": round(usable_rate, 3),
             }
         )

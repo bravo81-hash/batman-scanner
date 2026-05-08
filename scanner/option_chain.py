@@ -35,8 +35,28 @@ def select_candidate_strikes(
         window = [strike for strike in clean if lower <= strike <= upper]
         if not window:
             window = clean
-        closest = sorted(window, key=lambda strike: abs(strike - underlying_price))
-        return sorted(closest[:max_contracts])
+        below_or_at_spot = [strike for strike in window if strike <= underlying_price]
+        above_spot = [strike for strike in window if strike > underlying_price]
+
+        below_count = min(len(below_or_at_spot), max(1, int(max_contracts * 0.30)))
+        above_count = min(len(above_spot), max_contracts - below_count)
+        selected = _evenly_spaced_values(below_or_at_spot, below_count)
+        selected.extend(_evenly_spaced_values(above_spot, above_count))
+
+        if len(selected) < max_contracts:
+            selected_values = set(selected)
+            remaining = [strike for strike in window if strike not in selected_values]
+            selected.extend(_evenly_spaced_values(remaining, max_contracts - len(selected)))
+
+        closest_to_spot = min(window, key=lambda strike: abs(strike - underlying_price))
+        selected.append(closest_to_spot)
+        final = sorted(set(selected))
+        while len(final) > max_contracts:
+            removable = [strike for strike in final if strike != closest_to_spot]
+            if not removable:
+                break
+            final.remove(min(removable))
+        return final
 
     midpoint = len(clean) // 2
     half = max_contracts // 2
@@ -44,6 +64,20 @@ def select_candidate_strikes(
     end = min(start + max_contracts, len(clean))
     start = max(end - max_contracts, 0)
     return clean[start:end]
+
+
+def _evenly_spaced_values(values: list[float], count: int) -> list[float]:
+    """Select up to count values spread across the full input range."""
+    if count <= 0 or not values:
+        return []
+    if count >= len(values):
+        return list(values)
+    if count == 1:
+        return [values[len(values) // 2]]
+
+    last_index = len(values) - 1
+    indexes = [round(index * last_index / (count - 1)) for index in range(count)]
+    return [values[index] for index in indexes]
 
 
 def filter_expiries(expiries: list[str], settings: ScanSettings, as_of: date | None = None) -> dict[str, int]:
@@ -56,7 +90,7 @@ def filter_expiries(expiries: list[str], settings: ScanSettings, as_of: date | N
     return dte_by_expiry
 
 
-def quote_diagnostic_counts(quotes: list[OptionQuote]) -> dict[str, int]:
+def quote_diagnostic_counts(quotes: list[OptionQuote]) -> dict[str, int | float]:
     """Count usable quotes and common missing-data reasons."""
     counts = {
         "total": len(quotes),
@@ -65,14 +99,28 @@ def quote_diagnostic_counts(quotes: list[OptionQuote]) -> dict[str, int]:
         "missing_bid_ask": 0,
         "invalid_bid_ask": 0,
         "missing_delta": 0,
+        "min_usable_strike": 0.0,
+        "max_usable_strike": 0.0,
+        "min_usable_delta": 0.0,
+        "max_usable_delta": 0.0,
     }
+    usable_strikes: list[float] = []
+    usable_deltas: list[float] = []
     for quote in quotes:
         if quote.has_required_data():
             counts["usable"] += 1
+            usable_strikes.append(quote.strike)
+            usable_deltas.append(quote.delta or 0.0)
             continue
         counts["missing"] += 1
         for reason in quote.missing_data_reasons():
             counts[reason] += 1
+    if usable_strikes:
+        counts["min_usable_strike"] = min(usable_strikes)
+        counts["max_usable_strike"] = max(usable_strikes)
+    if usable_deltas:
+        counts["min_usable_delta"] = min(usable_deltas)
+        counts["max_usable_delta"] = max(usable_deltas)
     return counts
 
 
@@ -107,10 +155,22 @@ def scan_from_quote_fetcher(
     candidates = build_candidates_from_quotes(settings.symbol, quotes_by_expiry, dte_by_expiry, settings)
     progress("scoring candidates")
     ranked = rank_candidates(candidates, settings)
+    warnings: list[str] = []
+    usable_delta_mins = [
+        counts["min_usable_delta"]
+        for counts in quote_counts_by_expiry.values()
+        if counts["usable"] > 0
+    ]
+    if usable_delta_mins and min(usable_delta_mins) > 20:
+        warnings.append(
+            "Usable cached quotes do not include low-delta calls. "
+            "Refresh the quote cache with the latest strike selector so far-OTM Batman legs are available."
+        )
     return ScanResult(
         settings=settings,
         candidates=ranked[: settings.max_results],
         skipped_missing_data=skipped_missing_data,
         skipped_filters=max(len(candidates) - len(ranked), 0),
         quote_counts_by_expiry=quote_counts_by_expiry,
+        warnings=warnings,
     )

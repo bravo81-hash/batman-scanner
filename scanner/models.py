@@ -188,6 +188,6 @@ class ScanResult:
     candidates: list[BatmanCandidate]
     skipped_missing_data: int = 0
     skipped_filters: int = 0
-    quote_counts_by_expiry: dict[str, dict[str, int]] = field(default_factory=dict)
+    quote_counts_by_expiry: dict[str, dict[str, int | float]] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     mock: bool = False
