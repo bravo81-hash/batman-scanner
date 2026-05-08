@@ -96,6 +96,10 @@ Open the local Streamlit URL printed in the terminal.
 - SQLite scan history in `data/scan_history.db`.
 - SQLite quote cache in `data/quote_cache.db`.
 - CSV export for top candidates.
+- Side-by-side results workspace:
+  - compact ranked candidate list
+  - selected-candidate risk chart
+  - selected leg details without returning to the top of the page
 - Selected-candidate risk chart:
   - projected PnL curves across underlying prices
   - multiple projection dates

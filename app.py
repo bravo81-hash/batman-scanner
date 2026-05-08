@@ -59,6 +59,21 @@ def candidate_rows(candidates: list[BatmanCandidate]) -> list[dict[str, Any]]:
     return rows
 
 
+def candidate_picker_label(candidate: BatmanCandidate) -> str:
+    """Return a compact label for quickly switching between ranked candidates."""
+    strikes = (
+        f"{candidate.sc_high.quote.strike:g}/"
+        f"{candidate.lc_mid.quote.strike:g}/"
+        f"{candidate.sc_low.quote.strike:g}"
+    )
+    return (
+        f"#{candidate.rank} | score {candidate.score:.4f} | "
+        f"{candidate.front_dte}d/{candidate.back_dte}d | "
+        f"{strikes} | credit {candidate.entry_credit:.2f} | "
+        f"delta {candidate.total_delta:.2f}"
+    )
+
+
 def quote_count_rows(result: ScanResult) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for expiry, counts in sorted(result.quote_counts_by_expiry.items()):
@@ -226,6 +241,41 @@ def show_candidate_details(candidates: list[BatmanCandidate]) -> None:
             st.dataframe(pd.DataFrame(leg_rows), use_container_width=True, hide_index=True)
 
 
+def selected_candidate_detail_rows(candidate: BatmanCandidate) -> list[dict[str, Any]]:
+    """Build leg rows for the currently selected candidate."""
+    rows: list[dict[str, Any]] = []
+    for leg in candidate.legs:
+        quote = leg.quote
+        rows.append(
+            {
+                "leg": leg.name,
+                "action": leg.action,
+                "quantity": leg.quantity,
+                "expiry": quote.expiry,
+                "strike": quote.strike,
+                "bid": quote.bid,
+                "ask": quote.ask,
+                "mid": quote.mid,
+                "delta": quote.delta,
+                "theta": quote.theta,
+                "vega": quote.vega,
+                "gamma": quote.gamma,
+                "implied_vol": quote.implied_vol,
+            }
+        )
+    return rows
+
+
+def show_selected_candidate_metrics(candidate: BatmanCandidate) -> None:
+    """Show the high-signal numbers for the selected candidate."""
+    st.metric("Score", f"{candidate.score:.4f}")
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("Credit", f"{candidate.entry_credit:.2f}")
+    metric_cols[1].metric("Delta", f"{candidate.total_delta:.2f}")
+    metric_cols[2].metric("Theta", f"{candidate.total_theta:.2f}")
+    metric_cols[3].metric("Vega", f"{candidate.total_vega:.2f}")
+
+
 def show_risk_chart(candidate: BatmanCandidate, spot_price: float) -> None:
     """Render an approximate OptionNet-style risk chart for one candidate."""
     frame = candidate_risk_frame(candidate, spot_price=spot_price, price_points=121, projection_count=5)
@@ -267,6 +317,48 @@ def show_risk_chart(candidate: BatmanCandidate, spot_price: float) -> None:
     fig.update_yaxes(title_text="Profit/Loss", row=1, col=1)
     fig.update_yaxes(title_text="Greeks", row=2, col=1)
     st.plotly_chart(fig, use_container_width=True)
+
+
+def show_results_workspace(result: ScanResult, spot_price: float) -> None:
+    """Show candidate list and selected risk chart side by side."""
+    left, right = st.columns([0.34, 0.66], gap="large")
+    label_by_rank = {candidate.rank: candidate_picker_label(candidate) for candidate in result.candidates}
+
+    with left:
+        st.subheader("Candidates")
+        selected_rank = st.radio(
+            "Ranked setups",
+            options=[candidate.rank for candidate in result.candidates],
+            format_func=lambda rank: label_by_rank[rank],
+            label_visibility="collapsed",
+        )
+
+        with st.expander("Full Candidate Table", expanded=False):
+            st.dataframe(pd.DataFrame(candidate_rows(result.candidates)), use_container_width=True, hide_index=True)
+
+        csv_text = candidates_to_csv(result.candidates)
+        st.download_button(
+            "Export top candidates to CSV",
+            data=csv_text,
+            file_name=f"{result.candidates[0].symbol.lower()}_batman_candidates.csv",
+            mime="text/csv",
+        )
+
+    selected_candidate = next(candidate for candidate in result.candidates if candidate.rank == selected_rank)
+    with right:
+        st.subheader("Risk Chart")
+        show_selected_candidate_metrics(selected_candidate)
+        if spot_price > 0:
+            show_risk_chart(selected_candidate, float(spot_price))
+        else:
+            st.info("Enter a risk chart spot price in the sidebar to view projected PnL and Greeks.")
+
+        with st.expander("Selected Candidate Legs", expanded=True):
+            st.dataframe(
+                pd.DataFrame(selected_candidate_detail_rows(selected_candidate)),
+                use_container_width=True,
+                hide_index=True,
+            )
 
 
 def run_ibkr_scan(settings: ScanSettings, connection: dict[str, Any], status_box: Any) -> ScanResult:
@@ -450,32 +542,11 @@ def main() -> None:
         )
         return
 
-    st.subheader("Top Ranked Candidates")
-    st.dataframe(pd.DataFrame(candidate_rows(result.candidates)), use_container_width=True, hide_index=True)
-
-    st.subheader("Risk Chart")
-    selected_rank = st.selectbox(
-        "Selected candidate",
-        options=[candidate.rank for candidate in result.candidates],
-        format_func=lambda rank: f"Rank {rank}",
-    )
-    selected_candidate = next(candidate for candidate in result.candidates if candidate.rank == selected_rank)
     spot_price = connection.get("risk_chart_spot") or connection.get("manual_underlying_price") or 0.0
-    if spot_price > 0:
-        show_risk_chart(selected_candidate, float(spot_price))
-    else:
-        st.info("Enter a risk chart spot price in the sidebar to view projected PnL and Greeks.")
+    show_results_workspace(result, float(spot_price))
 
-    csv_text = candidates_to_csv(result.candidates)
-    st.download_button(
-        "Export top candidates to CSV",
-        data=csv_text,
-        file_name=f"{settings.symbol.lower()}_batman_candidates.csv",
-        mime="text/csv",
-    )
-
-    st.subheader("Candidate Details")
-    show_candidate_details(result.candidates)
+    with st.expander("All Candidate Details", expanded=False):
+        show_candidate_details(result.candidates)
 
 
 if __name__ == "__main__":
