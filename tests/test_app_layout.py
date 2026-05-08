@@ -1,6 +1,6 @@
 import unittest
 
-from app import candidate_picker_label
+from app import candidate_picker_label, selected_candidate_summary
 from scanner.batman import build_batman_candidate
 from scanner.models import OptionQuote, ScanSettings
 
@@ -49,6 +49,30 @@ class AppLayoutTests(unittest.TestCase):
         self.assertIn("6000", label)
         self.assertIn("credit", label)
         self.assertIn("delta", label)
+
+    def test_selected_candidate_summary_is_single_line(self) -> None:
+        candidate = build_batman_candidate(
+            symbol="SPX",
+            front_expiry="2027-01-15",
+            back_expiry="2027-04-16",
+            front_dte=253,
+            back_dte=344,
+            sc_high=quote("2027-01-15", 5200, 55, 35, 36),
+            lc_mid=quote("2027-04-16", 5600, 33, 12, 13),
+            front_quotes=[quote("2027-01-15", 6000, 8, 3, 4)],
+            target_total_delta=3,
+            settings=ScanSettings(),
+        )
+        assert candidate is not None
+
+        summary = selected_candidate_summary(candidate)
+
+        self.assertNotIn("\n", summary)
+        self.assertIn("Score", summary)
+        self.assertIn("Credit", summary)
+        self.assertIn("Delta", summary)
+        self.assertIn("Theta", summary)
+        self.assertIn("Vega", summary)
 
 
 if __name__ == "__main__":

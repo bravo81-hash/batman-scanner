@@ -266,14 +266,15 @@ def selected_candidate_detail_rows(candidate: BatmanCandidate) -> list[dict[str,
     return rows
 
 
-def show_selected_candidate_metrics(candidate: BatmanCandidate) -> None:
-    """Show the high-signal numbers for the selected candidate."""
-    st.metric("Score", f"{candidate.score:.4f}")
-    metric_cols = st.columns(4)
-    metric_cols[0].metric("Credit", f"{candidate.entry_credit:.2f}")
-    metric_cols[1].metric("Delta", f"{candidate.total_delta:.2f}")
-    metric_cols[2].metric("Theta", f"{candidate.total_theta:.2f}")
-    metric_cols[3].metric("Vega", f"{candidate.total_vega:.2f}")
+def selected_candidate_summary(candidate: BatmanCandidate) -> str:
+    """Return a one-line summary that does not push the chart down."""
+    return (
+        f"Score {candidate.score:.4f} | "
+        f"Credit {candidate.entry_credit:.2f} | "
+        f"Delta {candidate.total_delta:.2f} | "
+        f"Theta {candidate.total_theta:.2f} | "
+        f"Vega {candidate.total_vega:.2f}"
+    )
 
 
 def show_risk_chart(candidate: BatmanCandidate, spot_price: float) -> None:
@@ -308,9 +309,9 @@ def show_risk_chart(candidate: BatmanCandidate, spot_price: float) -> None:
     fig.add_vline(x=spot_price, line_dash="dash", line_color="white")
     fig.add_hline(y=0, row=1, col=1, line_color="gray")
     fig.update_layout(
-        height=720,
+        height=640,
         template="plotly_dark",
-        margin={"l": 40, "r": 20, "t": 60, "b": 40},
+        margin={"l": 40, "r": 20, "t": 36, "b": 34},
         legend={"orientation": "h"},
     )
     fig.update_xaxes(title_text="Underlying Price", row=2, col=1)
@@ -346,8 +347,7 @@ def show_results_workspace(result: ScanResult, spot_price: float) -> None:
 
     selected_candidate = next(candidate for candidate in result.candidates if candidate.rank == selected_rank)
     with right:
-        st.subheader("Risk Chart")
-        show_selected_candidate_metrics(selected_candidate)
+        st.markdown(f"**Risk Chart** · {selected_candidate_summary(selected_candidate)}")
         if spot_price > 0:
             show_risk_chart(selected_candidate, float(spot_price))
         else:
