@@ -34,11 +34,18 @@ def init_quote_cache(db_path: str = DEFAULT_QUOTE_CACHE_PATH) -> None:
                 theta REAL,
                 vega REAL,
                 gamma REAL,
+                implied_vol REAL,
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (symbol, expiry, strike, right)
             )
             """
         )
+        existing_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(option_quote_cache)").fetchall()
+        }
+        if "implied_vol" not in existing_columns:
+            connection.execute("ALTER TABLE option_quote_cache ADD COLUMN implied_vol REAL")
 
 
 def save_quotes(
@@ -63,6 +70,7 @@ def save_quotes(
             quote.theta,
             quote.vega,
             quote.gamma,
+            quote.implied_vol,
             updated_at,
         )
         for quote in quotes
@@ -71,8 +79,8 @@ def save_quotes(
         connection.executemany(
             """
             INSERT INTO option_quote_cache
-            (symbol, expiry, strike, right, bid, ask, mid, delta, theta, vega, gamma, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (symbol, expiry, strike, right, bid, ask, mid, delta, theta, vega, gamma, implied_vol, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(symbol, expiry, strike, right) DO UPDATE SET
                 bid = excluded.bid,
                 ask = excluded.ask,
@@ -81,6 +89,7 @@ def save_quotes(
                 theta = excluded.theta,
                 vega = excluded.vega,
                 gamma = excluded.gamma,
+                implied_vol = excluded.implied_vol,
                 updated_at = excluded.updated_at
             """,
             rows,
@@ -133,6 +142,7 @@ def load_cached_quotes(
                 theta=row["theta"],
                 vega=row["vega"],
                 gamma=row["gamma"],
+                implied_vol=row["implied_vol"] if "implied_vol" in row.keys() else None,
             )
         )
     return quotes
@@ -197,4 +207,3 @@ def cache_scan_result(
     if not result.candidates:
         result.warnings.append("Cached quotes were available, but no candidates matched the filters.")
     return result
-

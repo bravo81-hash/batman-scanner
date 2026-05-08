@@ -31,6 +31,7 @@ def make_quote(
         theta=-0.01,
         vega=0.25,
         gamma=0.001,
+        implied_vol=0.22,
     )
 
 
@@ -45,6 +46,7 @@ class QuoteCacheTests(unittest.TestCase):
             self.assertEqual(len(quotes), 1)
             self.assertEqual(quotes[0].strike, 6000)
             self.assertEqual(quotes[0].delta, 10.0)
+            self.assertEqual(quotes[0].implied_vol, 0.22)
 
     def test_load_cached_quotes_filters_stale_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 
 from scanner.config import ibkr_config, load_config, settings_from_config
@@ -14,6 +16,7 @@ from scanner.mock_data import mock_scan
 from scanner.models import BatmanCandidate, ScanResult, ScanSettings
 from scanner.option_chain import scan_from_quote_fetcher
 from scanner.quote_cache import cache_scan_result, quote_cache_stats
+from scanner.risk_chart import candidate_risk_frame
 
 
 st.set_page_config(page_title="Batman Scanner", layout="wide")
@@ -96,6 +99,13 @@ def sidebar_settings(defaults: ScanSettings, ib_defaults: dict[str, Any]) -> tup
         step=1.0,
         help="Optional off-hours fallback for strike filtering when IBKR cannot provide an underlying price.",
     )
+    risk_chart_spot = st.sidebar.number_input(
+        "Risk chart spot price",
+        min_value=0.0,
+        value=float(manual_underlying_price),
+        step=1.0,
+        help="Used for selected-candidate risk charts when IBKR spot is unavailable.",
+    )
 
     st.sidebar.header("Scanner")
     symbol = st.sidebar.text_input("Underlying symbol", value=defaults.symbol).upper()
@@ -170,6 +180,7 @@ def sidebar_settings(defaults: ScanSettings, ib_defaults: dict[str, Any]) -> tup
         "client_id": int(client_id),
         "market_data_type": market_data_type,
         "manual_underlying_price": float(manual_underlying_price),
+        "risk_chart_spot": float(risk_chart_spot),
         "use_quote_cache": bool(use_quote_cache),
         "cache_max_age_seconds": int(cache_max_age_minutes) * 60,
     }
@@ -209,9 +220,53 @@ def show_candidate_details(candidates: list[BatmanCandidate]) -> None:
                         "theta": quote.theta,
                         "vega": quote.vega,
                         "gamma": quote.gamma,
+                        "implied_vol": quote.implied_vol,
                     }
                 )
             st.dataframe(pd.DataFrame(leg_rows), use_container_width=True, hide_index=True)
+
+
+def show_risk_chart(candidate: BatmanCandidate, spot_price: float) -> None:
+    """Render an approximate OptionNet-style risk chart for one candidate."""
+    frame = candidate_risk_frame(candidate, spot_price=spot_price, price_points=121, projection_count=5)
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        row_heights=[0.65, 0.35],
+        vertical_spacing=0.06,
+        subplot_titles=("Projected PnL", "Greeks at T+0"),
+    )
+
+    for label, group in frame.groupby("projection_label"):
+        fig.add_trace(
+            go.Scatter(x=group["underlying_price"], y=group["pnl"], mode="lines", name=label),
+            row=1,
+            col=1,
+        )
+
+    current_greeks = frame[frame["projection_day"] == 0]
+    for greek in ["delta", "gamma", "theta", "vega"]:
+        values = current_greeks[greek] / 100 if greek == "vega" else current_greeks[greek]
+        label = "vega/100" if greek == "vega" else greek
+        fig.add_trace(
+            go.Scatter(x=current_greeks["underlying_price"], y=values, mode="lines", name=label),
+            row=2,
+            col=1,
+        )
+
+    fig.add_vline(x=spot_price, line_dash="dash", line_color="white")
+    fig.add_hline(y=0, row=1, col=1, line_color="gray")
+    fig.update_layout(
+        height=720,
+        template="plotly_dark",
+        margin={"l": 40, "r": 20, "t": 60, "b": 40},
+        legend={"orientation": "h"},
+    )
+    fig.update_xaxes(title_text="Underlying Price", row=2, col=1)
+    fig.update_yaxes(title_text="Profit/Loss", row=1, col=1)
+    fig.update_yaxes(title_text="Greeks", row=2, col=1)
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def run_ibkr_scan(settings: ScanSettings, connection: dict[str, Any], status_box: Any) -> ScanResult:
@@ -397,6 +452,19 @@ def main() -> None:
 
     st.subheader("Top Ranked Candidates")
     st.dataframe(pd.DataFrame(candidate_rows(result.candidates)), use_container_width=True, hide_index=True)
+
+    st.subheader("Risk Chart")
+    selected_rank = st.selectbox(
+        "Selected candidate",
+        options=[candidate.rank for candidate in result.candidates],
+        format_func=lambda rank: f"Rank {rank}",
+    )
+    selected_candidate = next(candidate for candidate in result.candidates if candidate.rank == selected_rank)
+    spot_price = connection.get("risk_chart_spot") or connection.get("manual_underlying_price") or 0.0
+    if spot_price > 0:
+        show_risk_chart(selected_candidate, float(spot_price))
+    else:
+        st.info("Enter a risk chart spot price in the sidebar to view projected PnL and Greeks.")
 
     csv_text = candidates_to_csv(result.candidates)
     st.download_button(

@@ -30,6 +30,7 @@ def candidates_to_csv(candidates: list[BatmanCandidate]) -> str:
             "theta",
             "vega",
             "gamma",
+            "implied_vol",
         ]
     )
     for candidate in candidates:
@@ -53,7 +54,7 @@ def candidates_to_csv(candidates: list[BatmanCandidate]) -> str:
                     quote.theta,
                     quote.vega,
                     quote.gamma,
+                    quote.implied_vol,
                 ]
             )
     return output.getvalue()
-

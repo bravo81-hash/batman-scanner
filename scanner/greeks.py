@@ -50,5 +50,6 @@ def quote_from_ticker(symbol: str, contract: Any, ticker: Any) -> OptionQuote | 
         theta=_number_or_none(getattr(greeks, "theta", None)),
         vega=_number_or_none(getattr(greeks, "vega", None)),
         gamma=_number_or_none(getattr(greeks, "gamma", None)),
+        implied_vol=_number_or_none(getattr(greeks, "impliedVol", None)),
         contract=contract,
     )

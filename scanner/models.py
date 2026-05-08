@@ -24,6 +24,7 @@ class OptionQuote:
     theta: float | None = None
     vega: float | None = None
     gamma: float | None = None
+    implied_vol: float | None = None
     contract: Any | None = None
 
     def has_required_data(self) -> bool:

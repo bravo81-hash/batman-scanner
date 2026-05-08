@@ -28,6 +28,8 @@ Continue building the local Python project at batman-scanner. It is a macOS Stre
 - [x] Add local SQLite quote cache.
 - [x] Add background quote-cache collector.
 - [x] Add cache-backed scan path for faster repeated ranking.
+- [x] Store implied volatility from IBKR model Greeks when available.
+- [x] Add selected-candidate risk chart with projected PnL and Greeks.
 - [ ] Test with TWS or IB Gateway paper account.
 - [ ] Tune strike filtering and market data pacing after real IBKR testing.
 
@@ -94,12 +96,21 @@ Open the local Streamlit URL printed in the terminal.
 - SQLite scan history in `data/scan_history.db`.
 - SQLite quote cache in `data/quote_cache.db`.
 - CSV export for top candidates.
+- Selected-candidate risk chart:
+  - projected PnL curves across underlying prices
+  - multiple projection dates
+  - current spot marker
+  - T+0 delta, gamma, theta, and vega/100 curves
 - IBKR preflight check for underlying, chain metadata, and underlying price.
 - `Max contracts per expiry` setting to reduce the first live scan size.
 - `Market data batch size` setting to keep simultaneous IBKR market-data requests below account line limits.
 - Optional `Manual underlying price` fallback for off-hours strike filtering.
 - `Market data type` selector for live, frozen, delayed, and delayed-frozen IBKR data requests.
 - Background `Refresh Quote Cache` workflow so repeated scans rank from local cached quotes instead of blocking on IBKR.
+
+## Risk Chart Notes
+
+The built-in risk chart uses a simple Black-Scholes approximation from cached bid/ask, strike, DTE, and implied volatility. If IBKR does not provide implied volatility, the chart falls back to a default IV assumption. Use this chart to compare shapes quickly, then manually model preferred setups in OptionNet Explorer before trading.
 
 ## What Is Intentionally Not Included Yet
 
