@@ -1,7 +1,8 @@
 """Risk-chart calculations for selected Batman candidates.
 
-These functions use a simple Black-Scholes approximation. They are for scanner
-visualisation only and are not a substitute for final OptionNet Explorer checks.
+The chart uses a Black-Scholes style approximation calibrated to current option
+mid prices. It is intended for quick scanner triage before manual review in a
+separate options analysis tool.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from scanner.models import BatmanCandidate, BatmanLeg
 
 
 RISK_FREE_RATE = 0.0
+DIVIDEND_YIELD = 0.0
 CONTRACT_MULTIPLIER = 100
 
 
@@ -32,8 +34,11 @@ def black_scholes_call_price(
     years_to_expiry: float,
     implied_vol: float,
     risk_free_rate: float = RISK_FREE_RATE,
+    dividend_yield: float = DIVIDEND_YIELD,
 ) -> float:
-    """Return an approximate European call price."""
+    """Return an approximate European call price using Black-Scholes-Merton."""
+    if underlying_price <= 0 or strike <= 0:
+        return 0.0
     if years_to_expiry <= 0 or implied_vol <= 0:
         return max(underlying_price - strike, 0.0)
 
@@ -41,9 +46,14 @@ def black_scholes_call_price(
     if sigma_sqrt_t <= 0:
         return max(underlying_price - strike, 0.0)
 
-    d1 = (log(underlying_price / strike) + (risk_free_rate + 0.5 * implied_vol**2) * years_to_expiry) / sigma_sqrt_t
+    d1 = (
+        log(underlying_price / strike)
+        + (risk_free_rate - dividend_yield + 0.5 * implied_vol**2) * years_to_expiry
+    ) / sigma_sqrt_t
     d2 = d1 - sigma_sqrt_t
-    return underlying_price * _norm_cdf(d1) - strike * exp(-risk_free_rate * years_to_expiry) * _norm_cdf(d2)
+    discounted_spot = underlying_price * exp(-dividend_yield * years_to_expiry)
+    discounted_strike = strike * exp(-risk_free_rate * years_to_expiry)
+    return discounted_spot * _norm_cdf(d1) - discounted_strike * _norm_cdf(d2)
 
 
 def black_scholes_call_greeks(
@@ -52,22 +62,32 @@ def black_scholes_call_greeks(
     years_to_expiry: float,
     implied_vol: float,
     risk_free_rate: float = RISK_FREE_RATE,
+    dividend_yield: float = DIVIDEND_YIELD,
 ) -> dict[str, float]:
-    """Return approximate per-contract call Greeks in option-price units."""
+    """Return per-contract call Greeks in option-price units."""
+    if underlying_price <= 0 or strike <= 0:
+        return {"delta": 0.0, "gamma": 0.0, "theta": 0.0, "vega": 0.0}
     if years_to_expiry <= 0 or implied_vol <= 0:
         delta = 1.0 if underlying_price > strike else 0.0
         return {"delta": delta, "gamma": 0.0, "theta": 0.0, "vega": 0.0}
 
     sigma_sqrt_t = implied_vol * sqrt(years_to_expiry)
-    d1 = (log(underlying_price / strike) + (risk_free_rate + 0.5 * implied_vol**2) * years_to_expiry) / sigma_sqrt_t
+    d1 = (
+        log(underlying_price / strike)
+        + (risk_free_rate - dividend_yield + 0.5 * implied_vol**2) * years_to_expiry
+    ) / sigma_sqrt_t
     d2 = d1 - sigma_sqrt_t
-    delta = _norm_cdf(d1)
-    gamma = _norm_pdf(d1) / (underlying_price * sigma_sqrt_t)
+    spot_discount = exp(-dividend_yield * years_to_expiry)
+    strike_discount = exp(-risk_free_rate * years_to_expiry)
+
+    delta = spot_discount * _norm_cdf(d1)
+    gamma = spot_discount * _norm_pdf(d1) / (underlying_price * sigma_sqrt_t)
     theta = (
-        -(underlying_price * _norm_pdf(d1) * implied_vol) / (2 * sqrt(years_to_expiry))
-        - risk_free_rate * strike * exp(-risk_free_rate * years_to_expiry) * _norm_cdf(d2)
+        -underlying_price * spot_discount * _norm_pdf(d1) * implied_vol / (2 * sqrt(years_to_expiry))
+        - risk_free_rate * strike * strike_discount * _norm_cdf(d2)
+        + dividend_yield * underlying_price * spot_discount * _norm_cdf(d1)
     ) / 365
-    vega = underlying_price * _norm_pdf(d1) * sqrt(years_to_expiry) / 100
+    vega = underlying_price * spot_discount * _norm_pdf(d1) * sqrt(years_to_expiry) / 100
     return {"delta": delta, "gamma": gamma, "theta": theta, "vega": vega}
 
 
@@ -77,17 +97,26 @@ def implied_vol_from_call_price(
     years_to_expiry: float,
     call_price: float,
     fallback_iv: float,
+    risk_free_rate: float = RISK_FREE_RATE,
+    dividend_yield: float = DIVIDEND_YIELD,
 ) -> float:
     """Find the IV that reproduces an observed call price in this model."""
     intrinsic = max(underlying_price - strike, 0.0)
-    if years_to_expiry <= 0 or call_price <= intrinsic:
+    if underlying_price <= 0 or strike <= 0 or years_to_expiry <= 0 or call_price <= intrinsic:
         return fallback_iv
 
     low = 0.0001
     high = 5.0
     for _ in range(80):
         mid = (low + high) / 2
-        model_price = black_scholes_call_price(underlying_price, strike, years_to_expiry, mid)
+        model_price = black_scholes_call_price(
+            underlying_price,
+            strike,
+            years_to_expiry,
+            mid,
+            risk_free_rate,
+            dividend_yield,
+        )
         if isclose(model_price, call_price, rel_tol=1e-8, abs_tol=1e-8):
             return mid
         if model_price < call_price:
@@ -97,13 +126,11 @@ def implied_vol_from_call_price(
     return (low + high) / 2
 
 
-def projection_days(final_dte: int, points: int = 5) -> list[int]:
-    """Return evenly spaced projection days from T+0 through final expiry."""
-    if points <= 1:
+def projection_days(horizon_dte: int, points: int = 5) -> list[int]:
+    """Return projection days from T+0 through the selected horizon."""
+    if points <= 1 or horizon_dte <= 0:
         return [0]
-    if final_dte <= 0:
-        return [0]
-    return [round(final_dte * index / (points - 1)) for index in range(points)]
+    return sorted(set(round(horizon_dte * index / (points - 1)) for index in range(points)))
 
 
 def candidate_risk_frame(
@@ -111,30 +138,44 @@ def candidate_risk_frame(
     spot_price: float,
     price_points: int = 101,
     projection_count: int = 5,
+    lower_price_multiplier: float = 0.70,
+    upper_price_multiplier: float = 1.60,
+    projection_horizon: str = "front",
 ) -> pd.DataFrame:
     """Build PnL and Greek rows across prices and projection dates."""
-    low_price = max(spot_price * 0.70, 1.0)
-    high_price = spot_price * 1.30
+    if spot_price <= 0:
+        return pd.DataFrame()
+
+    low_price = max(spot_price * lower_price_multiplier, 1.0)
+    high_price = max(spot_price * upper_price_multiplier, low_price + 1.0)
     if price_points <= 1:
         prices = [spot_price]
     else:
         step = (high_price - low_price) / (price_points - 1)
         prices = [low_price + (step * index) for index in range(price_points)]
 
-    final_dte = candidate.front_dte
-    projections = projection_days(final_dte, projection_count)
-    rows: list[dict[str, float | str | int]] = []
+    horizon_dte = candidate.back_dte if projection_horizon == "back" else candidate.front_dte
+    projections = projection_days(horizon_dte, projection_count)
+    entry_mid_mark_value = _candidate_mark_value(candidate, spot_price, 0, spot_price)
+    executable_entry_credit_value = candidate.entry_credit * CONTRACT_MULTIPLIER
+    t0_executable_pnl = executable_entry_credit_value + entry_mid_mark_value
 
+    rows: list[dict[str, float | str | int]] = []
     for elapsed in projections:
         for price in prices:
             mark_value = _candidate_mark_value(candidate, price, elapsed, spot_price)
             greeks = _candidate_greeks(candidate, price, elapsed, spot_price)
+            mid_normalized_pnl = mark_value - entry_mid_mark_value
+            executable_pnl = executable_entry_credit_value + mark_value
             rows.append(
                 {
                     "underlying_price": price,
                     "projection_day": elapsed,
                     "projection_label": f"T+{elapsed}",
-                    "pnl": (candidate.entry_credit * CONTRACT_MULTIPLIER) + mark_value,
+                    "pnl": mid_normalized_pnl,
+                    "mid_normalized_pnl": mid_normalized_pnl,
+                    "executable_pnl": executable_pnl,
+                    "t0_executable_pnl": t0_executable_pnl,
                     "delta": greeks["delta"],
                     "gamma": greeks["gamma"],
                     "theta": greeks["theta"],
