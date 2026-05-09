@@ -108,6 +108,8 @@ class BatmanCandidate:
     spread_penalty: float = 0.0
     theta_score: float = 0.0
     delta_theta_ratio_score: float = 0.0
+    liquidity_score: float = 0.0
+    shape_quality_score: float = 0.0
     rank: int = 0
     created_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
 
@@ -180,6 +182,10 @@ class ScanSettings:
     allowed_delta_deviation: float = 5.0
     target_credit: float = 10.0
     scoring_mode: str = "theta_first"
+    expiry_pairing_mode: str = "all_pairs"
+    require_positive_theta: bool = False
+    upside_strike_multiplier: float = 1.60
+    strategy_preset: str = "dynamic_batman_grid"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -193,5 +199,6 @@ class ScanResult:
     skipped_missing_data: int = 0
     skipped_filters: int = 0
     quote_counts_by_expiry: dict[str, dict[str, int | float]] = field(default_factory=dict)
+    rejection_reasons: dict[str, int] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     mock: bool = False
