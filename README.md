@@ -4,12 +4,46 @@ Local Python scanner for Batman-style 3-leg call option structures using Interac
 
 This app is scanner-only. It does not place orders, submit orders, modify live trades, or automate execution.
 
+## Current Strategy Logic
+
+The scanner currently builds Batman-style CALL structures using:
+
+1. SC_High
+   - Sell 1 front-expiry call
+   - Target approximately 45–60 delta
+   - Default anchor around 54 delta
+
+2. LC_Mid
+   - Buy 2 back-expiry calls
+   - Target:
+
+   LC_Mid delta ≈ SC_High delta - offset
+
+   Example:
+
+   - SC_High = 54 delta
+   - LC_Mid ≈ 32 delta
+
+3. SC_Low
+   - Sell 1 additional front-expiry call
+   - NOT a fixed 7 delta option
+   - Dynamically selected to bring TOTAL POSITION DELTA near the configured target
+
+Approximate example:
+
+- short 54 delta = -54
+- long 2 x 32 delta = +64
+- short ~7 delta = -7
+- total position delta ≈ +3
+
+This dynamic total-position-delta targeting is intentional and is one of the key architectural advantages of the scanner.
+
 ## Continuation Status Prompt
 
 If one AI session runs out of usage, paste this into the next session:
 
 ```text
-Continue building the local Python project at batman-scanner. It is a macOS Streamlit app using ib_insync, SQLite, and modular scanner files. It scans IBKR option chains for 3-leg Batman CALL candidates only; no order placement or live trade modification is allowed. First inspect the current files and git diff, then continue from the checklist in README.md.
+Continue building the local Python project at batman-scanner. It is a macOS Streamlit app using ib_insync, SQLite, and modular scanner files. It scans IBKR option chains for 3-leg Batman CALL candidates only; no order placement or live trade modification is allowed. First inspect the current files and git diff, then continue from docs/ARCHITECTURE_REVIEW.md and the checklist in README.md.
 ```
 
 ## MVP Checklist
@@ -30,6 +64,12 @@ Continue building the local Python project at batman-scanner. It is a macOS Stre
 - [x] Add cache-backed scan path for faster repeated ranking.
 - [x] Store implied volatility from IBKR model Greeks when available.
 - [x] Add selected-candidate risk chart with projected PnL and Greeks.
+- [x] Add architecture review and roadmap documentation.
+- [ ] Add expiry pairing modes.
+- [ ] Add strategy presets.
+- [ ] Add positive-theta hard filter.
+- [ ] Add configurable upside strike multiplier in UI.
+- [ ] Add exact buddy-comparison mode.
 - [ ] Test with TWS or IB Gateway paper account.
 - [ ] Tune strike filtering and market data pacing after real IBKR testing.
 
@@ -77,6 +117,62 @@ Open the local Streamlit URL printed in the terminal.
 8. Click `Refresh Quote Cache` and let the background collector populate local SQLite quotes.
 9. Leave `Run scan from quote cache` checked and click `Run Scan`.
 10. Check skipped-contract warnings. Missing Greeks usually means market data permissions, delayed data, or IBKR model data is unavailable.
+
+## Current And Planned Scanner Modes
+
+### Current Modes
+
+- Theta-first Batman
+- Balanced delta/credit
+- Delta/theta ratio
+
+### Planned Modes
+
+#### Buddy 54-32-3
+
+Exact replication-style mode:
+
+- SC_High = 54 delta
+- LC_Mid offset = 22
+- target_trade_delta = 3
+- adjacent expiry pairing
+- theta-first ranking
+
+#### Dynamic Batman Grid
+
+Research mode:
+
+- dynamic SC_High ranges
+- dynamic offsets
+- dynamic target deltas
+- exhaustive pairing
+
+#### Live Conservative
+
+Execution-focused mode:
+
+- tighter spread penalties
+- positive theta required
+- narrower DTE windows
+- conservative strike filtering
+
+## Planned Expiry Pairing Modes
+
+### all_pairs
+
+Evaluate all valid near/far expiry combinations.
+
+This is the current behavior.
+
+### adjacent_only
+
+Only pair neighboring expiries.
+
+### first_valid_far
+
+Use the first later expiry satisfying the minimum DTE spread.
+
+This may better match the original research scanner.
 
 ## What Is Included
 
