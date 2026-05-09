@@ -7,19 +7,60 @@ client_id = 11
 symbol = "SPX"
 exchange = "CBOE"
 currency = "USD"
+
+# DTE filters
 min_front_dte = 80
 max_dte = 600
 min_dte_gap = 50
 max_dte_gap = 200
+
+# Delta framework
 sc_high_min_delta = 45
 sc_high_max_delta = 60
 sc_high_delta_step = 5
+
+# LC_Mid target = SC_High delta - offset
 lc_mid_min_offset = 18
 lc_mid_max_offset = 26
 lc_mid_offset_step = 2
+
+# Target total position delta
+# Example:
+# -54 + (2 * 32) - 7 ≈ +3
+# SC_Low is dynamically selected to target this value.
 target_trade_delta = 3
+
+# Candidate filters
 min_credit = 0
+require_positive_theta = false
 max_results = 10
+
+# Market data controls
 max_contracts_per_expiry = 120
 market_data_batch_size = 80
+
+# Ranking mode
+# Options:
+# - theta_first
+# - balanced
+# - delta_theta_ratio
 scoring_mode = "theta_first"
+
+# Expiry pairing mode
+# all_pairs:
+#   evaluate all valid near/far combinations
+# adjacent_only:
+#   only pair neighboring expiries
+# first_valid_far:
+#   first later expiry satisfying min gap
+expiry_pairing_mode = "all_pairs"
+
+# Strike filtering
+# Used when collecting far OTM calls.
+upside_strike_multiplier = 1.60
+
+# Planned future preset support
+# buddy_54_32_3
+# dynamic_batman_grid
+# live_conservative
+strategy_preset = "dynamic_batman_grid"
