@@ -114,92 +114,65 @@ This will scale well.
 
 ---
 
+# Recent Implementation Progress
+
+The following next-stage scanner features are now implemented:
+
+- Expiry pairing modes:
+  - `all_pairs`
+  - `adjacent_only`
+  - `first_valid_far`
+- Strategy presets:
+  - `dynamic_batman_grid`
+  - `buddy_54_32_3`
+  - `live_conservative`
+- Positive theta hard filter through `require_positive_theta`.
+- Rejection reason diagnostics surfaced in scan diagnostics.
+- Configurable `upside_strike_multiplier`.
+- Candidate `liquidity_score` and `shape_quality_score`.
+
 # Highest Priority Improvements
 
-## PRIORITY 1 — Add Expiry Pairing Modes
+## PRIORITY 1 — Candidate Diversity / De-duplication
 
-Current scanner:
-
-- scans ALL valid front/back DTE pairs
-
-Original scanner likely used:
-
-- near expiry
-- first later expiry satisfying minimum spread
-
-Add setting:
-
-Expiry Pairing Mode:
-
-1. all_pairs
-2. adjacent_only
-3. first_valid_far
-
-This will allow exact reproduction of the original scanner behavior.
+The top ranked list can still contain near-identical structures. Add an optional diversity filter that keeps only the best candidate per expiry/strike group.
 
 ---
 
-## PRIORITY 2 — Add Strategy Presets
+## PRIORITY 2 — Exact Buddy Comparison Mode
 
-Add preset system:
+Add a report-style mode that makes scanner output easier to compare against the original buddy scanner:
 
-### Preset: Buddy 54-32-3
-
-- SC_High target = 54
-- LC_Mid offset = 22
-- target_trade_delta = 3
-- theta_first scoring
-- adjacent expiry pairing
-
-### Preset: Dynamic Batman Grid
-
-- SC_High range = 45–60
-- dynamic offsets
-- dynamic target deltas
-
-### Preset: Live Conservative
-
-- tighter spread filters
-- positive theta required
-- narrower DTE ranges
+- candidate count
+- constructed count
+- ranked count
+- target deltas
+- credit
+- position delta
+- position theta
+- D/T ratio
+- score
 
 ---
 
-## PRIORITY 3 — Add Positive Theta Filter
+## PRIORITY 3 — Tune Far OTM Strike Coverage
 
-Current theta-first scoring can still allow theta-negative setups.
+Current configurable strike window defaults to:
 
-Add optional filters:
+spot * 0.75 → spot * 1.60
 
-- require_position_theta_positive
-- max_theta_drag
+Further live testing should tune this by product, volatility regime, and IBKR market-data pacing constraints.
 
-Recommended default:
+Available setting:
 
-position_theta > 0
-
----
-
-## PRIORITY 4 — Improve Far OTM Strike Coverage
-
-Current strike window:
-
-spot * 0.75 → spot * 1.45
-
-This may exclude useful far OTM short calls in high-volatility or far-DTE environments.
-
-Add configurable setting:
-
-upside_strike_multiplier:
+`upside_strike_multiplier`
 
 - 1.45
 - 1.60
 - 1.80
 - 2.00
 
-Recommended default:
-
-1.60
+Current default: 1.60
 
 ---
 

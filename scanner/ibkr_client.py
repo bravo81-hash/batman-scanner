@@ -172,6 +172,7 @@ class IBKRClient:
                 list(chain.strikes),
                 underlying_price,
                 settings.max_contracts_per_expiry,
+                settings.upside_strike_multiplier,
             )
         ]
         quotes: list[OptionQuote] = []

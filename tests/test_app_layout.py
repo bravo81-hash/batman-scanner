@@ -1,8 +1,8 @@
 import unittest
 
-from app import candidate_picker_label, candidate_rows, risk_chart_spot_price, selected_candidate_summary
+from app import candidate_picker_label, candidate_rows, rejection_reason_rows, risk_chart_spot_price, selected_candidate_summary
 from scanner.batman import build_batman_candidate
-from scanner.models import OptionQuote, ScanSettings
+from scanner.models import OptionQuote, ScanResult, ScanSettings
 
 
 def quote(expiry: str, strike: float, delta: float, bid: float, ask: float) -> OptionQuote:
@@ -96,11 +96,24 @@ class AppLayoutTests(unittest.TestCase):
         self.assertIn("D/T ratio", row)
         self.assertIn("theta score", row)
         self.assertIn("D/T score", row)
+        self.assertIn("liquidity score", row)
+        self.assertIn("shape quality score", row)
 
     def test_risk_chart_spot_prefers_manual_then_result_then_connection_manual(self) -> None:
         self.assertEqual(risk_chart_spot_price(10, 20, 30), 10)
         self.assertEqual(risk_chart_spot_price(0, 20, 30), 20)
         self.assertEqual(risk_chart_spot_price(0, None, 30), 30)
+
+    def test_rejection_reason_rows_sort_by_count(self) -> None:
+        result = ScanResult(
+            settings=ScanSettings(),
+            candidates=[],
+            rejection_reasons={"no_sc_low": 2, "negative_or_zero_theta": 5},
+        )
+
+        rows = rejection_reason_rows(result)
+
+        self.assertEqual(rows[0], {"reason": "negative_or_zero_theta", "count": 5})
 
 
 if __name__ == "__main__":

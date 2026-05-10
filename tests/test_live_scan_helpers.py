@@ -37,6 +37,18 @@ class LiveScanHelperTests(unittest.TestCase):
             len([strike for strike in selected if strike < 7275]),
         )
 
+    def test_select_candidate_strikes_uses_configurable_upside_multiplier(self) -> None:
+        strikes = list(range(4000, 13001, 5))
+
+        selected = select_candidate_strikes(
+            strikes,
+            underlying_price=7275,
+            max_contracts=120,
+            upside_multiplier=1.80,
+        )
+
+        self.assertGreaterEqual(max(selected), 12000)
+
     def test_select_candidate_strikes_without_price_still_limits_contract_count(self) -> None:
         strikes = list(range(100, 1000, 5))
 

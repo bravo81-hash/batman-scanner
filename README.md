@@ -65,10 +65,12 @@ Continue building the local Python project at batman-scanner. It is a macOS Stre
 - [x] Store implied volatility from IBKR model Greeks when available.
 - [x] Add selected-candidate risk chart with projected PnL and Greeks.
 - [x] Add architecture review and roadmap documentation.
-- [ ] Add expiry pairing modes.
-- [ ] Add strategy presets.
-- [ ] Add positive-theta hard filter.
-- [ ] Add configurable upside strike multiplier in UI.
+- [x] Add expiry pairing modes.
+- [x] Add strategy presets.
+- [x] Add positive-theta hard filter.
+- [x] Add configurable upside strike multiplier in UI.
+- [x] Add rejection reason diagnostics.
+- [x] Add liquidity and shape quality scores.
 - [ ] Add exact buddy-comparison mode.
 - [ ] Test with TWS or IB Gateway paper account.
 - [ ] Tune strike filtering and market data pacing after real IBKR testing.
@@ -125,36 +127,20 @@ Open the local Streamlit URL printed in the terminal.
 - Theta-first Batman
 - Balanced delta/credit
 - Delta/theta ratio
+- Expiry pairing:
+  - all valid pairs
+  - adjacent only
+  - first valid far
+- Strategy presets:
+  - dynamic Batman grid
+  - buddy 54-32-3
+  - live conservative
 
 ### Planned Modes
 
-#### Buddy 54-32-3
-
-Exact replication-style mode:
-
-- SC_High = 54 delta
-- LC_Mid offset = 22
-- target_trade_delta = 3
-- adjacent expiry pairing
-- theta-first ranking
-
-#### Dynamic Batman Grid
-
-Research mode:
-
-- dynamic SC_High ranges
-- dynamic offsets
-- dynamic target deltas
-- exhaustive pairing
-
-#### Live Conservative
-
-Execution-focused mode:
-
-- tighter spread penalties
-- positive theta required
-- narrower DTE windows
-- conservative strike filtering
+- Exact buddy-comparison report mode.
+- Optional candidate diversity/de-duplication.
+- More detailed rejection drilldown.
 
 ## Planned Expiry Pairing Modes
 
@@ -195,7 +181,7 @@ This may better match the original research scanner.
   - D/T ratio score.
   - DTE anchor score.
   - Spread penalty.
-- Position-dollar Greeks displayed in the UI:
+- Position metrics displayed in the UI:
   - Position delta.
   - Position theta.
   - Position vega.

@@ -18,6 +18,7 @@ def select_candidate_strikes(
     strikes: list[float],
     underlying_price: float | None,
     max_contracts: int,
+    upside_multiplier: float = 1.45,
 ) -> list[float]:
     """Return a bounded strike list so live scans do not request too much data.
 
@@ -31,7 +32,7 @@ def select_candidate_strikes(
 
     if underlying_price is not None and underlying_price > 0:
         lower = underlying_price * 0.75
-        upper = underlying_price * 1.45
+        upper = underlying_price * max(upside_multiplier, 1.0)
         window = [strike for strike in clean if lower <= strike <= upper]
         if not window:
             window = clean
@@ -138,7 +139,8 @@ def scan_from_quote_fetcher(
         return ScanResult(settings=settings, candidates=[], warnings=["No expiries matched the DTE filters."])
 
     quotes_by_expiry: dict[str, list[OptionQuote]] = {}
-    quote_counts_by_expiry: dict[str, dict[str, int]] = {}
+    quote_counts_by_expiry: dict[str, dict[str, int | float]] = {}
+    rejection_reasons: dict[str, int] = {}
     skipped_missing_data = 0
     for expiry in sorted(dte_by_expiry):
         progress(f"requesting market data for {expiry}")
@@ -152,7 +154,13 @@ def scan_from_quote_fetcher(
             quotes_by_expiry[expiry] = valid_quotes
 
     progress("building candidates")
-    candidates = build_candidates_from_quotes(settings.symbol, quotes_by_expiry, dte_by_expiry, settings)
+    candidates = build_candidates_from_quotes(
+        settings.symbol,
+        quotes_by_expiry,
+        dte_by_expiry,
+        settings,
+        rejection_reasons=rejection_reasons,
+    )
     progress("scoring candidates")
     ranked = rank_candidates(candidates, settings)
     warnings: list[str] = []
@@ -172,5 +180,6 @@ def scan_from_quote_fetcher(
         skipped_missing_data=skipped_missing_data,
         skipped_filters=max(len(candidates) - len(ranked), 0),
         quote_counts_by_expiry=quote_counts_by_expiry,
+        rejection_reasons=rejection_reasons,
         warnings=warnings,
     )

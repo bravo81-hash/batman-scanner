@@ -113,9 +113,62 @@ Current important design choices:
 - risk chart uses approximate Black-Scholes/Black-Scholes-Merton style modelling calibrated to current mids
 - risk chart is for triage only, not final validation
 
+Completed next-stage items:
+
+- expiry_pairing_mode is implemented in scanner logic.
+- require_positive_theta is implemented as a hard candidate filter.
+- rejection_reasons are counted and displayed in scan diagnostics.
+- liquidity_score and shape_quality_score are calculated and displayed.
+- strategy presets are available in the Streamlit sidebar.
+- upside_strike_multiplier is configurable and used by live quote collection.
+
 Highest priority next development tasks:
 
-1. Implement expiry_pairing_mode in scanner logic:
+1. Add candidate diversity / de-duplication:
+
+   Avoid the top 10 being near-identical.
+
+   Simple first version:
+
+   - group candidates by front_expiry/back_expiry and rounded strikes
+   - show only the best candidate per group
+   - make this optional
+
+2. Add exact buddy-comparison mode:
+
+   Create a preset/report path that makes it easy to compare against the buddy scanner output.
+
+   Include:
+
+   - candidate count
+   - constructed count
+   - ranked count
+   - selected expiry pairing mode
+   - exact delta targets
+   - position delta
+   - position theta
+   - D/T ratio
+   - credit
+   - score
+
+3. Improve rejection diagnostics:
+
+   Track and display counts for reasons such as:
+
+   - no_valid_back_expiry
+   - no_sc_high
+   - no_lc_mid
+   - no_sc_low
+   - negative_or_zero_credit
+   - negative_or_zero_total_delta
+   - negative_or_zero_theta
+   - invalid_structure
+   - missing_quote_data
+   - wide_spread
+
+Reference details for implemented settings:
+
+expiry_pairing_mode options:
 
    Options:
 
@@ -129,94 +182,17 @@ Highest priority next development tasks:
      For each front expiry, use the first later expiry satisfying min_dte_gap and max_dte_gap.
      This may better replicate the original buddy scanner.
 
-2. Implement require_positive_theta:
-
-   - If true, reject candidates with position_theta <= 0.
-   - Record rejection reason as `negative_or_zero_theta`.
-   - This is an entry-selection filter only.
-
-3. Implement rejection_reasons counting:
-
-   Track and display counts for reasons such as:
-
-   - no_sc_high
-   - no_lc_mid
-   - no_sc_low
-   - negative_or_zero_credit
-   - negative_or_zero_total_delta
-   - negative_or_zero_theta
-   - invalid_structure
-   - missing_quote_data
-   - wide_spread
-
-4. Implement liquidity_score:
-
-   Use average_spread_ratio and quote quality.
-
-   Example:
-
-   liquidity_score = max(0, 1 - average_spread_ratio / 0.20)
-
-   Display liquidity_score in candidate table and detail view.
-
-5. Implement shape_quality_score:
-
-   Keep this simple initially. It should reward structures that preserve Batman-like geometry.
-
-   Suggested first version:
-
-   - SC_Low strike > SC_High strike
-   - LC_Mid strike between SC_High and SC_Low OR structurally close to expected middle zone
-   - total delta close to target
-   - positive theta preferred
-   - manageable spread
-
-   Do not make this complex yet.
-
-6. Add strategy presets:
-
-   - buddy_54_32_3
-     SC_High = 54 only
-     LC offset = 22 only
-     target_trade_delta = 3
-     scoring_mode = theta_first
-     expiry_pairing_mode = first_valid_far or adjacent_only
-
-   - dynamic_batman_grid
-     Current flexible scanner behaviour
-
-   - live_conservative
-     positive theta required
-     wider strike capture
-     stronger liquidity/spread penalty
-
-7. Add candidate diversity / de-duplication:
-
-   Avoid the top 10 being near-identical.
-
-   Simple first version:
-
-   - group candidates by front_expiry/back_expiry and rounded strikes
-   - show only the best candidate per group
-   - make this optional
-
-8. Update Streamlit UI:
+4. Update Streamlit UI:
 
    Add controls for:
 
-   - strategy_preset
-   - expiry_pairing_mode
-   - require_positive_theta
-   - upside_strike_multiplier
    - optional diversity toggle
 
    Add display columns for:
 
-   - liquidity_score
-   - shape_quality_score
-   - rejection reason diagnostics
+   - diversity group / duplicate status
 
-9. Update docs after every meaningful change:
+5. Update docs after every meaningful change:
 
    - README.md
    - docs/ARCHITECTURE_REVIEW.md if architectural decisions change

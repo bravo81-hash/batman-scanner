@@ -15,6 +15,7 @@ from scanner.ibkr_client import IBKRClient, resolve_underlying_price, runtime_di
 from scanner.mock_data import mock_scan
 from scanner.models import BatmanCandidate, ScanResult, ScanSettings
 from scanner.option_chain import scan_from_quote_fetcher
+from scanner.presets import apply_strategy_preset
 from scanner.quote_cache import cache_scan_result, quote_cache_stats
 from scanner.risk_chart import candidate_risk_frame
 
@@ -61,9 +62,19 @@ def candidate_rows(candidates: list[BatmanCandidate]) -> list[dict[str, Any]]:
                 "credit score": round(candidate.credit_score, 4),
                 "D/T score": round(candidate.delta_theta_ratio_score, 4),
                 "DTE anchor score": round(candidate.dte_anchor_score, 4),
+                "liquidity score": round(candidate.liquidity_score, 4),
+                "shape quality score": round(candidate.shape_quality_score, 4),
             }
         )
     return rows
+
+
+def rejection_reason_rows(result: ScanResult) -> list[dict[str, Any]]:
+    """Return rejection diagnostics sorted by most common reason."""
+    return [
+        {"reason": reason, "count": count}
+        for reason, count in sorted(result.rejection_reasons.items(), key=lambda item: item[1], reverse=True)
+    ]
 
 
 def candidate_picker_label(candidate: BatmanCandidate) -> str:
@@ -138,10 +149,38 @@ def sidebar_settings(defaults: ScanSettings, ib_defaults: dict[str, Any]) -> tup
     symbol = st.sidebar.text_input("Underlying symbol", value=defaults.symbol).upper()
     exchange = st.sidebar.text_input("Exchange", value=defaults.exchange)
     currency = st.sidebar.text_input("Currency", value=defaults.currency)
+    strategy_preset_options = {
+        "Dynamic Batman grid": "dynamic_batman_grid",
+        "Buddy 54-32-3": "buddy_54_32_3",
+        "Live conservative": "live_conservative",
+    }
+    default_preset_label = next(
+        (label for label, value in strategy_preset_options.items() if value == defaults.strategy_preset),
+        "Dynamic Batman grid",
+    )
+    strategy_preset_label = st.sidebar.selectbox(
+        "Strategy preset",
+        options=list(strategy_preset_options.keys()),
+        index=list(strategy_preset_options.keys()).index(default_preset_label),
+    )
     min_front_dte = st.sidebar.number_input("Min front DTE", min_value=1, value=defaults.min_front_dte)
     max_dte = st.sidebar.number_input("Max DTE", min_value=1, value=defaults.max_dte)
     min_dte_gap = st.sidebar.number_input("Min front/back DTE gap", min_value=1, value=defaults.min_dte_gap)
     max_dte_gap = st.sidebar.number_input("Max front/back DTE gap", min_value=1, value=defaults.max_dte_gap)
+    expiry_pairing_options = {
+        "All valid pairs": "all_pairs",
+        "Adjacent only": "adjacent_only",
+        "First valid far": "first_valid_far",
+    }
+    default_pairing_label = next(
+        (label for label, value in expiry_pairing_options.items() if value == defaults.expiry_pairing_mode),
+        "All valid pairs",
+    )
+    expiry_pairing_label = st.sidebar.selectbox(
+        "Expiry pairing mode",
+        options=list(expiry_pairing_options.keys()),
+        index=list(expiry_pairing_options.keys()).index(default_pairing_label),
+    )
 
     st.sidebar.header("Delta Targets")
     sc_high_min_delta = st.sidebar.number_input("SC_High min delta", min_value=1, max_value=100, value=defaults.sc_high_min_delta)
@@ -152,6 +191,7 @@ def sidebar_settings(defaults: ScanSettings, ib_defaults: dict[str, Any]) -> tup
     lc_mid_offset_step = st.sidebar.number_input("LC_Mid offset step", min_value=1, max_value=20, value=defaults.lc_mid_offset_step)
     target_trade_delta = st.sidebar.slider("Target total trade delta", min_value=1.0, max_value=5.0, value=float(defaults.target_trade_delta), step=0.5)
     min_credit = st.sidebar.number_input("Minimum entry credit", value=float(defaults.min_credit), step=0.5)
+    require_positive_theta = st.sidebar.checkbox("Require positive theta", value=defaults.require_positive_theta)
     max_results = st.sidebar.number_input("Max results", min_value=1, max_value=100, value=defaults.max_results)
     scoring_options = {
         "Theta-first Batman": "theta_first",
@@ -188,6 +228,14 @@ def sidebar_settings(defaults: ScanSettings, ib_defaults: dict[str, Any]) -> tup
         value=defaults.max_contracts_per_expiry,
         help="Total strike count to inspect for each expiry.",
     )
+    upside_strike_multiplier = st.sidebar.number_input(
+        "Upside strike multiplier",
+        min_value=1.05,
+        max_value=2.50,
+        value=float(defaults.upside_strike_multiplier),
+        step=0.05,
+        help="Upper strike collection bound as a multiple of spot. Higher values include farther OTM calls.",
+    )
     market_data_batch_size = st.sidebar.number_input(
         "Market data batch size",
         min_value=10,
@@ -216,7 +264,12 @@ def sidebar_settings(defaults: ScanSettings, ib_defaults: dict[str, Any]) -> tup
         max_contracts_per_expiry=int(max_contracts_per_expiry),
         market_data_batch_size=int(market_data_batch_size),
         scoring_mode=scoring_options[scoring_mode_label],
+        expiry_pairing_mode=expiry_pairing_options[expiry_pairing_label],
+        require_positive_theta=bool(require_positive_theta),
+        upside_strike_multiplier=float(upside_strike_multiplier),
+        strategy_preset=strategy_preset_options[strategy_preset_label],
     )
+    settings = apply_strategy_preset(settings)
     return settings, {
         "host": host,
         "port": int(port),
@@ -249,6 +302,8 @@ def show_candidate_details(candidates: list[BatmanCandidate]) -> None:
                     "credit_score": round(candidate.credit_score, 4),
                     "delta_theta_ratio_score": round(candidate.delta_theta_ratio_score, 4),
                     "dte_anchor_score": round(candidate.dte_anchor_score, 4),
+                    "liquidity_score": round(candidate.liquidity_score, 4),
+                    "shape_quality_score": round(candidate.shape_quality_score, 4),
                     "spread_penalty": round(candidate.spread_penalty, 4),
                 }
             )
@@ -581,6 +636,9 @@ def main() -> None:
     if result.quote_counts_by_expiry:
         with st.expander("Scan diagnostics", expanded=not result.candidates):
             st.dataframe(pd.DataFrame(quote_count_rows(result)), use_container_width=True, hide_index=True)
+            if result.rejection_reasons:
+                st.write("Rejection reasons")
+                st.dataframe(pd.DataFrame(rejection_reason_rows(result)), use_container_width=True, hide_index=True)
 
     if not result.candidates:
         st.error("No candidates matched the filters.")

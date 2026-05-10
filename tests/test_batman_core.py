@@ -1,7 +1,7 @@
 from datetime import date
 import unittest
 
-from scanner.batman import build_batman_candidate
+from scanner.batman import build_batman_candidate, build_candidates_from_quotes, back_expiries_for_front
 from scanner.export import candidates_to_csv
 from scanner.models import OptionQuote, ScanSettings
 from scanner.scoring import rank_candidates, score_candidate
@@ -118,6 +118,8 @@ class BatmanCoreTests(unittest.TestCase):
         self.assertIs(ranked[0], better_theta)
         self.assertGreater(ranked[0].theta_score, ranked[1].theta_score)
         self.assertGreater(ranked[0].score, ranked[1].score)
+        self.assertGreater(ranked[0].liquidity_score, 0)
+        self.assertGreater(ranked[0].shape_quality_score, 0)
 
     def test_candidate_exposes_position_dollar_greeks_and_delta_theta_ratio(self) -> None:
         settings = ScanSettings()
@@ -161,6 +163,82 @@ class BatmanCoreTests(unittest.TestCase):
         self.assertIn("SC_High,SELL,1", csv_text)
         self.assertIn("LC_Mid,BUY,2", csv_text)
         self.assertIn("SC_Low,SELL,1", csv_text)
+
+    def test_expiry_pairing_modes_choose_expected_back_expiries(self) -> None:
+        expiries = ["20270115", "20270219", "20270416", "20270618"]
+        dte_by_expiry = {
+            "20270115": 250,
+            "20270219": 285,
+            "20270416": 341,
+            "20270618": 404,
+        }
+
+        all_pairs = back_expiries_for_front("20270115", expiries, dte_by_expiry, ScanSettings(min_dte_gap=50))
+        adjacent = back_expiries_for_front(
+            "20270115",
+            expiries,
+            dte_by_expiry,
+            ScanSettings(min_dte_gap=50, expiry_pairing_mode="adjacent_only"),
+        )
+        first_valid = back_expiries_for_front(
+            "20270115",
+            expiries,
+            dte_by_expiry,
+            ScanSettings(min_dte_gap=50, expiry_pairing_mode="first_valid_far"),
+        )
+
+        self.assertEqual(all_pairs, ["20270416", "20270618"])
+        self.assertEqual(adjacent, [])
+        self.assertEqual(first_valid, ["20270416"])
+
+    def test_require_positive_theta_rejects_theta_negative_candidates(self) -> None:
+        settings = ScanSettings(
+            require_positive_theta=True,
+            sc_high_min_delta=55,
+            sc_high_max_delta=55,
+            lc_mid_min_offset=22,
+            lc_mid_max_offset=22,
+        )
+        front_quotes = [
+            quote_with_theta("2027-01-15", 5200, 55, 35, 36, -0.01),
+            quote_with_theta("2027-01-15", 6000, 8, 3, 4, -0.01),
+        ]
+        back_quotes = [quote_with_theta("2027-04-16", 5600, 33, 12, 13, -0.30)]
+        rejection_reasons: dict[str, int] = {}
+
+        candidates = build_candidates_from_quotes(
+            "SPX",
+            {"2027-01-15": front_quotes, "2027-04-16": back_quotes},
+            {"2027-01-15": 253, "2027-04-16": 344},
+            settings,
+            rejection_reasons=rejection_reasons,
+        )
+
+        self.assertEqual(candidates, [])
+        self.assertEqual(rejection_reasons["negative_or_zero_theta"], 1)
+
+    def test_rejection_reasons_count_missing_low_short_call(self) -> None:
+        settings = ScanSettings(
+            sc_high_min_delta=55,
+            sc_high_max_delta=55,
+            lc_mid_min_offset=22,
+            lc_mid_max_offset=22,
+        )
+        rejection_reasons: dict[str, int] = {}
+
+        candidates = build_candidates_from_quotes(
+            "SPX",
+            {
+                "2027-01-15": [quote("2027-01-15", 5200, 55, 35, 36)],
+                "2027-04-16": [quote("2027-04-16", 5600, 33, 12, 13)],
+            },
+            {"2027-01-15": 253, "2027-04-16": 344},
+            settings,
+            rejection_reasons=rejection_reasons,
+        )
+
+        self.assertEqual(candidates, [])
+        self.assertEqual(rejection_reasons["no_sc_low"], 1)
 
 
 if __name__ == "__main__":
