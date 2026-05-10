@@ -60,7 +60,7 @@ class RiskChartTests(unittest.TestCase):
         self.assertIn("theta", frame.columns)
         self.assertEqual(frame["projection_label"].nunique(), 3)
 
-    def test_candidate_risk_frame_anchors_current_pnl_to_entry_credit_and_mid_marks(self) -> None:
+    def test_candidate_risk_frame_reports_executable_pnl_from_entry_credit_and_mid_marks(self) -> None:
         settings = ScanSettings()
         candidate = build_batman_candidate(
             symbol="SPX",
@@ -80,7 +80,8 @@ class RiskChartTests(unittest.TestCase):
         expected_mark = (-35.5 + 2 * 12.5 - 3.5) * 100
         expected_pnl = (candidate.entry_credit * 100) + expected_mark
 
-        self.assertAlmostEqual(float(frame.iloc[0]["pnl"]), expected_pnl, places=3)
+        self.assertAlmostEqual(float(frame.iloc[0]["executable_pnl"]), expected_pnl, places=3)
+        self.assertAlmostEqual(float(frame.iloc[0]["pnl"]), 0.0, places=3)
 
 
 if __name__ == "__main__":
