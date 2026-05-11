@@ -8,6 +8,9 @@ from typing import Callable
 from scanner.batman import build_candidates_from_quotes
 from scanner.benchmarks import build_canonical_candidate, build_constrained_sweep_candidates
 from scanner.contracts import days_to_expiry
+from scanner.dte_neighborhoods import build_dte_neighborhoods
+from scanner.efficiency import apply_candidate_efficiency
+from scanner.market_regime import build_market_regime_snapshot
 from scanner.models import OptionQuote, ScanResult, ScanSettings
 from scanner.scoring import rank_candidates
 
@@ -172,9 +175,22 @@ def scan_from_quote_fetcher(
     )
     progress("scoring candidates")
     ranked = rank_candidates(candidates, settings)
+    ranked = [apply_candidate_efficiency(candidate) for candidate in ranked]
+
+    progress("building DTE neighborhoods")
+    dte_neighborhoods = build_dte_neighborhoods(quotes_by_expiry, dte_by_expiry, settings)
+
+    progress("building market regime snapshot")
+    market_regime = build_market_regime_snapshot(quotes_by_expiry, dte_by_expiry, ranked, dte_neighborhoods)
+
     progress("building benchmarks")
     canonical_candidate = build_canonical_candidate(settings.symbol, quotes_by_expiry, dte_by_expiry, settings)
-    sweep_candidates = build_constrained_sweep_candidates(settings.symbol, quotes_by_expiry, dte_by_expiry, settings)
+    if canonical_candidate is not None:
+        canonical_candidate = apply_candidate_efficiency(canonical_candidate)
+    sweep_candidates = [
+        apply_candidate_efficiency(candidate)
+        for candidate in build_constrained_sweep_candidates(settings.symbol, quotes_by_expiry, dte_by_expiry, settings)
+    ]
 
     warnings: list[str] = []
     usable_delta_mins = [
@@ -196,5 +212,7 @@ def scan_from_quote_fetcher(
         rejection_reasons=rejection_reasons,
         canonical_candidate=canonical_candidate,
         sweep_candidates=sweep_candidates,
+        dte_neighborhoods=dte_neighborhoods,
+        market_regime=market_regime,
         warnings=warnings,
     )
