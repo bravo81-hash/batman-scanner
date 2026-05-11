@@ -14,6 +14,14 @@ max_dte = 600
 min_dte_gap = 50
 max_dte_gap = 200
 
+# DTE selection mode:
+# - range
+# - target
+dte_selection_mode = "range"
+front_target_dte = 200
+back_target_dte = 260
+dte_tolerance = 20
+
 # Delta framework
 sc_high_min_delta = 45
 sc_high_max_delta = 60
@@ -58,6 +66,24 @@ expiry_pairing_mode = "all_pairs"
 # Strike filtering
 # Used when collecting far OTM calls.
 upside_strike_multiplier = 1.60
+
+# Strike increment filter:
+# 0 = any listed strike
+# 5, 10, 25 = only strikes divisible by that increment
+strike_increment = 0
+
+# Risk chart modelling assumptions.
+# These affect only theoretical quick-glance risk charts.
+risk_free_rate = 0.045
+dividend_yield = 0.013
+
+# Benchmark/constrained sweep settings.
+sweep_long_delta = 32.0
+sweep_short_hi_min_delta = 48.0
+sweep_short_hi_max_delta = 54.0
+sweep_short_lo_min_delta = 7.0
+sweep_short_lo_max_delta = 13.0
+sweep_max_abs_delta = 5.0
 
 # Planned future preset support
 # buddy_54_32_3

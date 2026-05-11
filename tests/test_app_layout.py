@@ -1,6 +1,14 @@
 import unittest
 
-from app import candidate_picker_label, candidate_rows, rejection_reason_rows, risk_chart_spot_price, selected_candidate_summary
+from app import (
+    benchmark_candidate_rows,
+    candidate_picker_label,
+    candidate_rows,
+    macro_assumption_rows,
+    rejection_reason_rows,
+    risk_chart_spot_price,
+    selected_candidate_summary,
+)
 from scanner.batman import build_batman_candidate
 from scanner.models import OptionQuote, ScanResult, ScanSettings
 
@@ -99,6 +107,31 @@ class AppLayoutTests(unittest.TestCase):
         self.assertIn("liquidity score", row)
         self.assertIn("shape quality score", row)
 
+    def test_benchmark_candidate_rows_include_comparison_fields(self) -> None:
+        candidate = build_batman_candidate(
+            symbol="SPX",
+            front_expiry="2027-01-15",
+            back_expiry="2027-04-16",
+            front_dte=253,
+            back_dte=344,
+            sc_high=quote("2027-01-15", 5200, 55, 35, 36),
+            lc_mid=quote("2027-04-16", 5600, 33, 12, 13),
+            front_quotes=[quote("2027-01-15", 6000, 8, 3, 4)],
+            target_total_delta=3,
+            settings=ScanSettings(),
+        )
+        assert candidate is not None
+        candidate.rank = 1
+
+        row = benchmark_candidate_rows([candidate], label="canonical")[0]
+
+        self.assertEqual(row["benchmark"], "canonical")
+        self.assertEqual(row["rank"], 1)
+        self.assertIn("position delta", row)
+        self.assertIn("position theta", row)
+        self.assertIn("D/T ratio", row)
+        self.assertIn("credit", row)
+
     def test_risk_chart_spot_prefers_manual_then_result_then_connection_manual(self) -> None:
         self.assertEqual(risk_chart_spot_price(10, 20, 30), 10)
         self.assertEqual(risk_chart_spot_price(0, 20, 30), 20)
@@ -114,6 +147,20 @@ class AppLayoutTests(unittest.TestCase):
         rows = rejection_reason_rows(result)
 
         self.assertEqual(rows[0], {"reason": "negative_or_zero_theta", "count": 5})
+
+    def test_macro_assumption_rows_are_display_ready(self) -> None:
+        rows = macro_assumption_rows(
+            risk_free_rate=0.0525,
+            dividend_yield=0.014,
+            source_label="manual",
+            last_refresh="2026-05-11T09:30:00",
+        )
+
+        self.assertEqual(rows[0]["assumption"], "Risk-free rate")
+        self.assertEqual(rows[0]["value"], "5.25%")
+        self.assertEqual(rows[0]["source"], "manual")
+        self.assertEqual(rows[1]["assumption"], "Dividend yield")
+        self.assertEqual(rows[1]["value"], "1.40%")
 
 
 if __name__ == "__main__":

@@ -71,6 +71,10 @@ Continue building the local Python project at batman-scanner. It is a macOS Stre
 - [x] Add configurable upside strike multiplier in UI.
 - [x] Add rejection reason diagnostics.
 - [x] Add liquidity and shape quality scores.
+- [x] Add risk-chart macro assumption controls.
+- [x] Propagate risk-free rate and dividend yield through risk chart modelling.
+- [x] Add benchmark comparison panel for canonical and constrained-sweep candidates.
+- [x] Add target-DTE and strike-increment UI controls.
 - [ ] Add exact buddy-comparison mode.
 - [ ] Test with TWS or IB Gateway paper account.
 - [ ] Tune strike filtering and market data pacing after real IBKR testing.
@@ -135,6 +139,14 @@ Open the local Streamlit URL printed in the terminal.
   - dynamic Batman grid
   - buddy 54-32-3
   - live conservative
+- DTE selection:
+  - range
+  - target front/back DTE with tolerance
+- Strike increment filters:
+  - any strike
+  - 5-point
+  - 10-point
+  - 25-point
 
 ### Planned Modes
 
@@ -194,11 +206,15 @@ This may better match the original research scanner.
   - compact ranked candidate list
   - selected-candidate risk chart
   - selected leg details without returning to the top of the page
+- Benchmark comparison panel:
+  - canonical 54/32 candidate when target expiries are available
+  - constrained-sweep benchmark candidates for comparison only
 - Selected-candidate risk chart:
   - projected PnL curves across underlying prices
   - multiple projection dates
   - current spot marker
   - T+0 delta, gamma, theta, and vega/100 curves
+  - configurable risk-free rate and dividend yield assumptions
 - IBKR preflight check for underlying, chain metadata, and underlying price.
 - `Max contracts per expiry` setting to reduce the first live scan size.
 - `Market data batch size` setting to keep simultaneous IBKR market-data requests below account line limits.

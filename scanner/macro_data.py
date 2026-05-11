@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import datetime
 from pathlib import Path
 from urllib.request import urlopen
 
@@ -40,6 +41,15 @@ def _save_cache(payload: dict) -> None:
         CACHE_FILE.write_text(json.dumps(payload, indent=2))
     except Exception:
         pass
+
+
+def _format_timestamp(timestamp: float | None) -> str:
+    if timestamp is None:
+        return ""
+    try:
+        return datetime.fromtimestamp(timestamp).isoformat(timespec="seconds")
+    except Exception:
+        return ""
 
 
 def _is_cache_valid(timestamp: float | None) -> bool:
@@ -133,3 +143,12 @@ def resolve_macro_inputs(
         fetch_spy_dividend_yield(),
         "auto_fetch",
     )
+
+
+def macro_cache_status() -> dict[str, str]:
+    """Return display-only cache timestamps for the Streamlit sidebar."""
+    cache = _load_cache()
+    return {
+        "risk_free_rate_updated_at": _format_timestamp(cache.get("risk_free_rate_ts")),
+        "dividend_yield_updated_at": _format_timestamp(cache.get("dividend_yield_ts")),
+    }

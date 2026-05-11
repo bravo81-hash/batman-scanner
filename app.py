@@ -12,6 +12,7 @@ from scanner.collector import QuoteCacheCollector
 from scanner.database import save_scan_history
 from scanner.export import candidates_to_csv
 from scanner.ibkr_client import IBKRClient, resolve_underlying_price, runtime_diagnostics, summarize_chain
+from scanner.macro_data import macro_cache_status, resolve_macro_inputs
 from scanner.mock_data import mock_scan
 from scanner.models import BatmanCandidate, ScanResult, ScanSettings
 from scanner.option_chain import scan_from_quote_fetcher
@@ -69,11 +70,59 @@ def candidate_rows(candidates: list[BatmanCandidate]) -> list[dict[str, Any]]:
     return rows
 
 
+def benchmark_candidate_rows(candidates: list[BatmanCandidate], label: str) -> list[dict[str, Any]]:
+    """Return compact benchmark rows for scanner-vs-reference comparison."""
+    rows: list[dict[str, Any]] = []
+    for candidate in candidates:
+        rows.append(
+            {
+                "benchmark": label,
+                "rank": candidate.rank,
+                "front expiry": candidate.front_expiry,
+                "front DTE": candidate.front_dte,
+                "back expiry": candidate.back_expiry,
+                "back DTE": candidate.back_dte,
+                "SC_High": f"{candidate.sc_high.quote.strike:g} d={candidate.sc_high.quote.delta or 0:.2f}",
+                "LC_Mid": f"{candidate.lc_mid.quote.strike:g} d={candidate.lc_mid.quote.delta or 0:.2f}",
+                "SC_Low": f"{candidate.sc_low.quote.strike:g} d={candidate.sc_low.quote.delta or 0:.2f}",
+                "credit": round(candidate.entry_credit, 2),
+                "position delta": round(candidate.position_delta, 2),
+                "position theta": round(candidate.position_theta, 2),
+                "D/T ratio": round(candidate.delta_theta_ratio, 4),
+                "score": round(candidate.score, 4),
+            }
+        )
+    return rows
+
+
 def rejection_reason_rows(result: ScanResult) -> list[dict[str, Any]]:
     """Return rejection diagnostics sorted by most common reason."""
     return [
         {"reason": reason, "count": count}
         for reason, count in sorted(result.rejection_reasons.items(), key=lambda item: item[1], reverse=True)
+    ]
+
+
+def macro_assumption_rows(
+    risk_free_rate: float,
+    dividend_yield: float,
+    source_label: str,
+    last_refresh: str,
+) -> list[dict[str, str]]:
+    """Return risk-chart modelling assumptions in a UI-friendly format."""
+    return [
+        {
+            "assumption": "Risk-free rate",
+            "value": f"{risk_free_rate * 100:.2f}%",
+            "source": source_label,
+            "last refresh": last_refresh,
+        },
+        {
+            "assumption": "Dividend yield",
+            "value": f"{dividend_yield * 100:.2f}%",
+            "source": source_label,
+            "last refresh": last_refresh,
+        },
     ]
 
 
@@ -181,6 +230,22 @@ def sidebar_settings(defaults: ScanSettings, ib_defaults: dict[str, Any]) -> tup
         options=list(expiry_pairing_options.keys()),
         index=list(expiry_pairing_options.keys()).index(default_pairing_label),
     )
+    dte_selection_options = {
+        "Range": "range",
+        "Target front/back": "target",
+    }
+    default_dte_selection_label = next(
+        (label for label, value in dte_selection_options.items() if value == defaults.dte_selection_mode),
+        "Range",
+    )
+    dte_selection_label = st.sidebar.selectbox(
+        "DTE selection mode",
+        options=list(dte_selection_options.keys()),
+        index=list(dte_selection_options.keys()).index(default_dte_selection_label),
+    )
+    front_target_dte = st.sidebar.number_input("Front target DTE", min_value=1, value=defaults.front_target_dte)
+    back_target_dte = st.sidebar.number_input("Back target DTE", min_value=1, value=defaults.back_target_dte)
+    dte_tolerance = st.sidebar.number_input("Target DTE tolerance", min_value=0, value=defaults.dte_tolerance)
 
     st.sidebar.header("Delta Targets")
     sc_high_min_delta = st.sidebar.number_input("SC_High min delta", min_value=1, max_value=100, value=defaults.sc_high_min_delta)
@@ -236,12 +301,65 @@ def sidebar_settings(defaults: ScanSettings, ib_defaults: dict[str, Any]) -> tup
         step=0.05,
         help="Upper strike collection bound as a multiple of spot. Higher values include farther OTM calls.",
     )
+    strike_increment_options = {
+        "Any strike": 0,
+        "5-point": 5,
+        "10-point": 10,
+        "25-point": 25,
+    }
+    default_strike_increment_label = next(
+        (label for label, value in strike_increment_options.items() if value == defaults.strike_increment),
+        "Any strike",
+    )
+    strike_increment_label = st.sidebar.selectbox(
+        "Strike increment",
+        options=list(strike_increment_options.keys()),
+        index=list(strike_increment_options.keys()).index(default_strike_increment_label),
+        help="Optional strike grid filter for cleaner OptionNet modelling and faster live quote collection.",
+    )
     market_data_batch_size = st.sidebar.number_input(
         "Market data batch size",
         min_value=10,
         max_value=95,
         value=min(defaults.market_data_batch_size, 95),
         help="Maximum simultaneous option market-data requests. Keep below your IBKR line limit.",
+    )
+
+    st.sidebar.header("Risk Chart Assumptions")
+    auto_fetch_macro = st.sidebar.checkbox(
+        "Auto-fetch macro assumptions",
+        value=False,
+        help="Optional. Used only for risk chart modelling, never for candidate generation or IBKR orders.",
+    )
+    manual_risk_free_rate_pct = st.sidebar.number_input(
+        "Risk-free rate %",
+        min_value=0.0,
+        max_value=20.0,
+        value=float(defaults.risk_free_rate * 100),
+        step=0.05,
+    )
+    manual_dividend_yield_pct = st.sidebar.number_input(
+        "Dividend yield %",
+        min_value=0.0,
+        max_value=10.0,
+        value=float(defaults.dividend_yield * 100),
+        step=0.05,
+    )
+    try:
+        risk_free_rate, dividend_yield, macro_source = resolve_macro_inputs(
+            auto_fetch=auto_fetch_macro,
+            manual_risk_free_rate=float(manual_risk_free_rate_pct) / 100,
+            manual_dividend_yield=float(manual_dividend_yield_pct) / 100,
+        )
+    except Exception as error:
+        risk_free_rate = float(manual_risk_free_rate_pct) / 100
+        dividend_yield = float(manual_dividend_yield_pct) / 100
+        macro_source = "manual_fallback"
+        st.sidebar.warning(f"Macro assumptions fallback: {error}")
+    macro_status = macro_cache_status()
+    macro_last_refresh = max(
+        macro_status.get("risk_free_rate_updated_at", ""),
+        macro_status.get("dividend_yield_updated_at", ""),
     )
 
     settings = ScanSettings(
@@ -267,7 +385,14 @@ def sidebar_settings(defaults: ScanSettings, ib_defaults: dict[str, Any]) -> tup
         expiry_pairing_mode=expiry_pairing_options[expiry_pairing_label],
         require_positive_theta=bool(require_positive_theta),
         upside_strike_multiplier=float(upside_strike_multiplier),
+        strike_increment=strike_increment_options[strike_increment_label],
         strategy_preset=strategy_preset_options[strategy_preset_label],
+        dte_selection_mode=dte_selection_options[dte_selection_label],
+        front_target_dte=int(front_target_dte),
+        back_target_dte=int(back_target_dte),
+        dte_tolerance=int(dte_tolerance),
+        risk_free_rate=float(risk_free_rate),
+        dividend_yield=float(dividend_yield),
     )
     settings = apply_strategy_preset(settings)
     return settings, {
@@ -279,6 +404,8 @@ def sidebar_settings(defaults: ScanSettings, ib_defaults: dict[str, Any]) -> tup
         "risk_chart_spot": float(risk_chart_spot),
         "use_quote_cache": bool(use_quote_cache),
         "cache_max_age_seconds": int(cache_max_age_minutes) * 60,
+        "macro_source": macro_source,
+        "macro_last_refresh": macro_last_refresh,
     }
 
 
@@ -377,9 +504,16 @@ def risk_chart_spot_price(
     return float(manual_chart_price or result_underlying_price or manual_underlying_price or 0.0)
 
 
-def show_risk_chart(candidate: BatmanCandidate, spot_price: float) -> None:
+def show_risk_chart(candidate: BatmanCandidate, spot_price: float, settings: ScanSettings) -> None:
     """Render an approximate OptionNet-style risk chart for one candidate."""
-    frame = candidate_risk_frame(candidate, spot_price=spot_price, price_points=121, projection_count=5)
+    frame = candidate_risk_frame(
+        candidate,
+        spot_price=spot_price,
+        price_points=121,
+        projection_count=5,
+        risk_free_rate=settings.risk_free_rate,
+        dividend_yield=settings.dividend_yield,
+    )
     fig = make_subplots(
         rows=2,
         cols=1,
@@ -420,7 +554,13 @@ def show_risk_chart(candidate: BatmanCandidate, spot_price: float) -> None:
     st.plotly_chart(fig, use_container_width=True)
 
 
-def show_results_workspace(result: ScanResult, spot_price: float) -> None:
+def show_results_workspace(
+    result: ScanResult,
+    spot_price: float,
+    risk_settings: ScanSettings,
+    macro_source: str,
+    macro_last_refresh: str,
+) -> None:
     """Show candidate list and selected risk chart side by side."""
     left, right = st.columns([0.34, 0.66], gap="large")
     label_by_rank = {candidate.rank: candidate_picker_label(candidate) for candidate in result.candidates}
@@ -449,9 +589,32 @@ def show_results_workspace(result: ScanResult, spot_price: float) -> None:
     with right:
         st.markdown(f"**Risk Chart** · {selected_candidate_summary(selected_candidate)}")
         if spot_price > 0:
-            show_risk_chart(selected_candidate, float(spot_price))
+            show_risk_chart(selected_candidate, float(spot_price), risk_settings)
         else:
             st.info("Enter a risk chart spot price in the sidebar to view projected PnL and Greeks.")
+
+        with st.expander("Risk Chart Assumptions", expanded=False):
+            st.dataframe(
+                pd.DataFrame(
+                    macro_assumption_rows(
+                        risk_settings.risk_free_rate,
+                        risk_settings.dividend_yield,
+                        macro_source,
+                        macro_last_refresh,
+                    )
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        benchmark_rows: list[dict[str, Any]] = []
+        if result.canonical_candidate is not None:
+            benchmark_rows.extend(benchmark_candidate_rows([result.canonical_candidate], "canonical 54/32"))
+        if result.sweep_candidates:
+            benchmark_rows.extend(benchmark_candidate_rows(result.sweep_candidates, "constrained sweep"))
+        if benchmark_rows:
+            with st.expander("Benchmark Comparison", expanded=False):
+                st.dataframe(pd.DataFrame(benchmark_rows), use_container_width=True, hide_index=True)
 
         with st.expander("Selected Candidate Legs", expanded=True):
             st.dataframe(
@@ -653,7 +816,13 @@ def main() -> None:
         result.underlying_price,
         connection.get("manual_underlying_price"),
     )
-    show_results_workspace(result, spot_price)
+    show_results_workspace(
+        result,
+        spot_price,
+        settings,
+        connection.get("macro_source", "manual"),
+        connection.get("macro_last_refresh", ""),
+    )
 
     with st.expander("All Candidate Details", expanded=False):
         show_candidate_details(result.candidates)

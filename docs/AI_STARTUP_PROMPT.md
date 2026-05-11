@@ -121,6 +121,11 @@ Completed next-stage items:
 - liquidity_score and shape_quality_score are calculated and displayed.
 - strategy presets are available in the Streamlit sidebar.
 - upside_strike_multiplier is configurable and used by live quote collection.
+- risk-chart macro assumptions are configurable in the sidebar.
+- risk_free_rate and dividend_yield flow through risk chart calculations.
+- canonical and constrained-sweep benchmark candidates are displayed in the results workspace.
+- target-DTE mode is available in the sidebar.
+- strike increment filtering is available in the sidebar.
 
 Highest priority next development tasks:
 

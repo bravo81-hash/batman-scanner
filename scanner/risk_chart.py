@@ -141,6 +141,8 @@ def candidate_risk_frame(
     lower_price_multiplier: float = 0.70,
     upper_price_multiplier: float = 1.60,
     projection_horizon: str = "front",
+    risk_free_rate: float = RISK_FREE_RATE,
+    dividend_yield: float = DIVIDEND_YIELD,
 ) -> pd.DataFrame:
     """Build PnL and Greek rows across prices and projection dates."""
     if spot_price <= 0:
@@ -156,15 +158,36 @@ def candidate_risk_frame(
 
     horizon_dte = candidate.back_dte if projection_horizon == "back" else candidate.front_dte
     projections = projection_days(horizon_dte, projection_count)
-    entry_mid_mark_value = _candidate_mark_value(candidate, spot_price, 0, spot_price)
+    entry_mid_mark_value = _candidate_mark_value(
+        candidate,
+        spot_price,
+        0,
+        spot_price,
+        risk_free_rate,
+        dividend_yield,
+    )
     executable_entry_credit_value = candidate.entry_credit * CONTRACT_MULTIPLIER
     t0_executable_pnl = executable_entry_credit_value + entry_mid_mark_value
 
     rows: list[dict[str, float | str | int]] = []
     for elapsed in projections:
         for price in prices:
-            mark_value = _candidate_mark_value(candidate, price, elapsed, spot_price)
-            greeks = _candidate_greeks(candidate, price, elapsed, spot_price)
+            mark_value = _candidate_mark_value(
+                candidate,
+                price,
+                elapsed,
+                spot_price,
+                risk_free_rate,
+                dividend_yield,
+            )
+            greeks = _candidate_greeks(
+                candidate,
+                price,
+                elapsed,
+                spot_price,
+                risk_free_rate,
+                dividend_yield,
+            )
             mid_normalized_pnl = mark_value - entry_mid_mark_value
             executable_pnl = executable_entry_credit_value + mark_value
             rows.append(
@@ -180,6 +203,8 @@ def candidate_risk_frame(
                     "gamma": greeks["gamma"],
                     "theta": greeks["theta"],
                     "vega": greeks["vega"],
+                    "risk_free_rate": risk_free_rate,
+                    "dividend_yield": dividend_yield,
                 }
             )
     return pd.DataFrame(rows)
@@ -205,6 +230,8 @@ def _calibrated_leg_iv(
     starting_years_to_expiry: float,
     fallback_iv: float,
     spot_price: float,
+    risk_free_rate: float,
+    dividend_yield: float,
 ) -> float:
     return implied_vol_from_call_price(
         spot_price,
@@ -212,10 +239,18 @@ def _calibrated_leg_iv(
         starting_years_to_expiry,
         mid,
         fallback_iv,
+        risk_free_rate,
+        dividend_yield,
     )
 
 
-def _leg_calibrated_iv(candidate: BatmanCandidate, leg: BatmanLeg, spot_price: float) -> float:
+def _leg_calibrated_iv(
+    candidate: BatmanCandidate,
+    leg: BatmanLeg,
+    spot_price: float,
+    risk_free_rate: float,
+    dividend_yield: float,
+) -> float:
     fallback_iv = _leg_iv(leg)
     observed_mid = leg.quote.mid
     if observed_mid is None or observed_mid <= 0:
@@ -226,6 +261,8 @@ def _leg_calibrated_iv(candidate: BatmanCandidate, leg: BatmanLeg, spot_price: f
         _leg_years_to_expiry(candidate, leg, 0),
         fallback_iv,
         spot_price,
+        risk_free_rate,
+        dividend_yield,
     )
 
 
@@ -235,6 +272,8 @@ def _scenario_leg_price(
     underlying_price: float,
     elapsed_days: int,
     spot_price: float,
+    risk_free_rate: float,
+    dividend_yield: float,
 ) -> float:
     """Return a scenario option price using IV calibrated to observed mid."""
     years_to_expiry = _leg_years_to_expiry(candidate, leg, elapsed_days)
@@ -246,7 +285,9 @@ def _scenario_leg_price(
         underlying_price,
         leg.quote.strike,
         years_to_expiry,
-        _leg_calibrated_iv(candidate, leg, spot_price),
+        _leg_calibrated_iv(candidate, leg, spot_price, risk_free_rate, dividend_yield),
+        risk_free_rate,
+        dividend_yield,
     )
     return max(scenario_price, intrinsic, 0.0)
 
@@ -256,10 +297,20 @@ def _candidate_mark_value(
     underlying_price: float,
     elapsed_days: int,
     spot_price: float,
+    risk_free_rate: float,
+    dividend_yield: float,
 ) -> float:
     total = 0.0
     for leg in candidate.legs:
-        price = _scenario_leg_price(candidate, leg, underlying_price, elapsed_days, spot_price)
+        price = _scenario_leg_price(
+            candidate,
+            leg,
+            underlying_price,
+            elapsed_days,
+            spot_price,
+            risk_free_rate,
+            dividend_yield,
+        )
         total += leg.signed_quantity * price * CONTRACT_MULTIPLIER
     return total
 
@@ -269,6 +320,8 @@ def _candidate_greeks(
     underlying_price: float,
     elapsed_days: int,
     spot_price: float,
+    risk_free_rate: float,
+    dividend_yield: float,
 ) -> dict[str, float]:
     totals = {"delta": 0.0, "gamma": 0.0, "theta": 0.0, "vega": 0.0}
     for leg in candidate.legs:
@@ -276,7 +329,9 @@ def _candidate_greeks(
             underlying_price,
             leg.quote.strike,
             _leg_years_to_expiry(candidate, leg, elapsed_days),
-            _leg_calibrated_iv(candidate, leg, spot_price),
+            _leg_calibrated_iv(candidate, leg, spot_price, risk_free_rate, dividend_yield),
+            risk_free_rate,
+            dividend_yield,
         )
         totals["delta"] += leg.signed_quantity * greeks["delta"] * CONTRACT_MULTIPLIER
         totals["gamma"] += leg.signed_quantity * greeks["gamma"] * CONTRACT_MULTIPLIER

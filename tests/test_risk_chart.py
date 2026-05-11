@@ -83,6 +83,36 @@ class RiskChartTests(unittest.TestCase):
         self.assertAlmostEqual(float(frame.iloc[0]["executable_pnl"]), expected_pnl, places=3)
         self.assertAlmostEqual(float(frame.iloc[0]["pnl"]), 0.0, places=3)
 
+    def test_candidate_risk_frame_records_macro_assumptions(self) -> None:
+        settings = ScanSettings()
+        candidate = build_batman_candidate(
+            symbol="SPX",
+            front_expiry="2027-01-15",
+            back_expiry="2027-04-16",
+            front_dte=253,
+            back_dte=344,
+            sc_high=quote("2027-01-15", 5200, 55, 35, 36),
+            lc_mid=quote("2027-04-16", 5600, 33, 12, 13),
+            front_quotes=[quote("2027-01-15", 6000, 8, 3, 4)],
+            target_total_delta=3,
+            settings=settings,
+        )
+        assert candidate is not None
+
+        frame = candidate_risk_frame(
+            candidate,
+            spot_price=5500,
+            price_points=3,
+            projection_count=1,
+            risk_free_rate=0.0525,
+            dividend_yield=0.014,
+        )
+
+        self.assertIn("risk_free_rate", frame.columns)
+        self.assertIn("dividend_yield", frame.columns)
+        self.assertAlmostEqual(float(frame.iloc[0]["risk_free_rate"]), 0.0525)
+        self.assertAlmostEqual(float(frame.iloc[0]["dividend_yield"]), 0.014)
+
 
 if __name__ == "__main__":
     unittest.main()

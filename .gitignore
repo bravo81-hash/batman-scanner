@@ -6,4 +6,4 @@ data/*.db
 exports/*.csv
 .DS_Store
 .env
-
+.scanner_cache/

@@ -167,9 +167,64 @@ Macro inputs affect ONLY:
 NOT live candidate generation.
 
 ---
+# Recently Completed From This Prompt
+
+- Streamlit macro controls:
+  - auto-fetch toggle
+  - manual risk-free rate
+  - manual dividend yield
+  - displayed source and refresh metadata
+- Risk chart modelling now receives risk-free rate and dividend yield from one settings path.
+- Benchmark comparison panel now displays canonical and constrained-sweep candidates.
+- Target-DTE mode is exposed in the sidebar.
+- Strike increment controls are exposed in the sidebar.
+
+---
 # What Still Needs To Be Implemented
 
-## 1. Streamlit UI Integration For Macro Inputs
+## 1. Candidate Diversity / De-duplication
+
+Avoid the top ranked list being near-identical structures.
+
+Simple first version:
+
+- group candidates by front expiry, back expiry, and rounded strikes
+- keep only the best candidate per group
+- make this optional in Streamlit
+
+---
+## 2. Exact Buddy Comparison Mode
+
+Create a report-style mode that makes it easy to compare against buddy scanner output.
+
+Include:
+
+- candidate count
+- constructed count
+- ranked count
+- selected expiry pairing mode
+- exact delta targets
+- position delta
+- position theta
+- D/T ratio
+- credit
+- score
+
+---
+## 3. Improve Rejection Diagnostics
+
+Add or refine rejection reasons such as:
+
+- no_valid_back_expiry
+- invalid_structure
+- wide_spread
+
+Current rejection diagnostics already include the major leg/credit/delta/theta failures.
+
+---
+# Completed Details
+
+## Streamlit UI Integration For Macro Inputs
 
 Wire into sidebar:
 

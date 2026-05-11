@@ -130,6 +130,9 @@ The following next-stage scanner features are now implemented:
 - Rejection reason diagnostics surfaced in scan diagnostics.
 - Configurable `upside_strike_multiplier`.
 - Candidate `liquidity_score` and `shape_quality_score`.
+- Risk-chart macro assumptions are exposed in Streamlit and passed through the Black-Scholes modelling path.
+- Benchmark candidates are shown in the results workspace for canonical 54/32 and constrained-sweep comparison.
+- Target-DTE mode and strike-increment filters are exposed in the sidebar.
 
 # Highest Priority Improvements
 
