@@ -6,6 +6,7 @@ from datetime import date
 from typing import Callable
 
 from scanner.batman import build_candidates_from_quotes
+from scanner.benchmarks import build_canonical_candidate, build_constrained_sweep_candidates
 from scanner.contracts import days_to_expiry
 from scanner.models import OptionQuote, ScanResult, ScanSettings
 from scanner.scoring import rank_candidates
@@ -21,12 +22,7 @@ def select_candidate_strikes(
     upside_multiplier: float = 1.45,
     strike_increment: int = 0,
 ) -> list[float]:
-    """Return a bounded strike list so live scans do not request too much data.
-
-    When an underlying price is available, keep strikes in a broad call-focused
-    window and then choose the closest strikes around the underlying. If no
-    price is available, keep a centered slice from the full chain.
-    """
+    """Return a bounded strike list so live scans do not request too much data."""
     clean = sorted(float(strike) for strike in strikes if float(strike) > 0)
     if strike_increment > 0:
         clean = [strike for strike in clean if round(strike) % strike_increment == 0]
@@ -176,6 +172,10 @@ def scan_from_quote_fetcher(
     )
     progress("scoring candidates")
     ranked = rank_candidates(candidates, settings)
+    progress("building benchmarks")
+    canonical_candidate = build_canonical_candidate(settings.symbol, quotes_by_expiry, dte_by_expiry, settings)
+    sweep_candidates = build_constrained_sweep_candidates(settings.symbol, quotes_by_expiry, dte_by_expiry, settings)
+
     warnings: list[str] = []
     usable_delta_mins = [
         counts["min_usable_delta"]
@@ -194,5 +194,7 @@ def scan_from_quote_fetcher(
         skipped_filters=max(len(candidates) - len(ranked), 0),
         quote_counts_by_expiry=quote_counts_by_expiry,
         rejection_reasons=rejection_reasons,
+        canonical_candidate=canonical_candidate,
+        sweep_candidates=sweep_candidates,
         warnings=warnings,
     )
