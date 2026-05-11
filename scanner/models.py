@@ -185,7 +185,28 @@ class ScanSettings:
     expiry_pairing_mode: str = "all_pairs"
     require_positive_theta: bool = False
     upside_strike_multiplier: float = 1.60
+    strike_increment: int = 0
     strategy_preset: str = "dynamic_batman_grid"
+
+    # DTE selection mode. "range" keeps the original scan behavior. "target"
+    # narrows the scan to expiries close to explicit front/back DTE targets.
+    dte_selection_mode: str = "range"
+    front_target_dte: int = 200
+    back_target_dte: int = 260
+    dte_tolerance: int = 20
+
+    # Risk-chart modelling assumptions. These are scanner-triage assumptions only;
+    # final trade validation still belongs in OptionNet Explorer.
+    risk_free_rate: float = 0.045
+    dividend_yield: float = 0.013
+
+    # Optional benchmark sweep mode inputs inspired by the reference Flask tool.
+    sweep_long_delta: float = 32.0
+    sweep_short_hi_min_delta: float = 48.0
+    sweep_short_hi_max_delta: float = 54.0
+    sweep_short_lo_min_delta: float = 7.0
+    sweep_short_lo_max_delta: float = 13.0
+    sweep_max_abs_delta: float = 5.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
