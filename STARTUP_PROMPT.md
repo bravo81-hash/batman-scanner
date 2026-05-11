@@ -83,7 +83,8 @@ The project intentionally separates:
 2. Scoring/ranking
 3. Risk modelling
 4. Benchmark structures
-5. UI rendering
+5. Market regime analysis
+6. UI rendering
 
 DO NOT tightly couple these systems.
 
@@ -169,7 +170,144 @@ Macro inputs affect ONLY:
 NOT live candidate generation.
 
 ---
-# Recently Completed From This Prompt
+# New High-Priority Development Direction
+
+The scanner is evolving toward:
+
+"market-aware dynamic candidate discovery"
+
+The next development phase should focus on:
+
+1. DTE neighborhood intelligence
+2. market regime analysis
+3. candidate efficiency analysis
+4. benchmark comparison workflows
+5. maintaining fast live usability
+
+The scanner should become better at answering:
+
+- WHICH structures are attractive today?
+- WHICH DTE neighborhoods are currently efficient?
+- WHEN do dynamic structures outperform canonical structures?
+- WHAT volatility regime currently exists?
+- WHICH candidates deserve OptionNet modelling time?
+
+---
+# High-Priority Features To Implement
+
+## 1. DTE Neighborhood Ranking Engine
+
+Implement a pre-ranking system for front/back DTE neighborhoods.
+
+Purpose:
+- identify efficient expiration pairings BEFORE strike optimization
+- avoid blind scanning
+- improve theta efficiency
+- improve liquidity quality
+- improve structure quality
+
+Possible outputs:
+
+- DTE pair heatmap
+- theta efficiency by DTE pair
+- premium richness by DTE pair
+- liquidity quality by DTE pair
+- regime-favored neighborhoods
+
+IMPORTANT:
+Do NOT brute-force blindly.
+
+Prefer:
+- cached chain summaries
+- heuristics
+- coarse-to-fine scans
+- deterministic ranking
+
+Avoid:
+- expensive evolutionary optimization during live scans
+- nondeterministic behavior
+- long blocking scans
+
+---
+# 2. Market Regime Scanner (VERY IMPORTANT)
+
+This is now a major feature direction.
+
+The scanner should classify the current market environment.
+
+Potential metrics:
+
+- IV percentile
+- IV rank
+- term structure steepness
+- skew steepness
+- premium richness
+- theta richness
+- convexity opportunity
+- volatility expansion/compression
+- front/back volatility relationships
+
+Potential outputs:
+
+- "Compressed volatility regime"
+- "Expansion risk elevated"
+- "Dynamic structures favored"
+- "Canonical structures favored"
+- "Premium-rich environment"
+- "Low edge environment"
+
+IMPORTANT:
+This is informational guidance ONLY.
+
+Do NOT:
+- recommend position sizing
+- recommend capital allocation
+- become a portfolio tool
+
+Purpose:
+Improve candidate interpretation and trade selection quality.
+
+---
+# 3. Candidate Efficiency Metrics
+
+Add better candidate-quality metrics.
+
+Examples:
+
+- theta efficiency
+- credit efficiency
+- premium density
+- liquidity density
+- spread-adjusted efficiency
+- convexity efficiency
+- theta-per-unit-delta
+- premium-per-liquidity-risk
+
+Purpose:
+Avoid selecting:
+- pretty graphs with poor economics
+- illiquid structures
+- structurally weak candidates
+
+---
+# 4. Benchmark Comparison Panels
+
+Add side-by-side comparison panels:
+
+- canonical structure
+- constrained sweep structure
+- dynamic scanner structure
+
+Purpose:
+Help the trader understand:
+- regime effects
+- structural differences
+- whether optimization meaningfully improves the trade
+
+These are educational and analytical tools ONLY.
+
+---
+# Recently Completed
 
 - Streamlit macro controls:
   - auto-fetch toggle
@@ -184,7 +322,7 @@ NOT live candidate generation.
 ---
 # What Still Needs To Be Implemented
 
-## 1. Candidate Diversity / De-duplication
+## Candidate Diversity / De-duplication
 
 Avoid the top ranked list being near-identical structures.
 
@@ -195,7 +333,7 @@ Simple first version:
 - make this optional in Streamlit
 
 ---
-## 2. Exact Buddy Comparison Mode
+## Exact Buddy Comparison Mode
 
 Create a report-style mode that makes it easy to compare against buddy scanner output.
 
@@ -213,7 +351,7 @@ Include:
 - score
 
 ---
-## 3. Improve Rejection Diagnostics
+## Improve Rejection Diagnostics
 
 Add or refine rejection reasons such as:
 
@@ -222,92 +360,6 @@ Add or refine rejection reasons such as:
 - wide_spread
 
 Current rejection diagnostics already include the major leg/credit/delta/theta failures.
-
----
-# Completed Details
-
-## Streamlit UI Integration For Macro Inputs
-
-Wire into sidebar:
-
-- auto-fetch toggle
-- manual override fields
-- source label
-- last refresh timestamp
-
-Required behavior:
-
-AUTO MODE:
-- use macro_data.resolve_macro_inputs()
-
-MANUAL MODE:
-- use user-entered values
-
-Must fail gracefully.
-
-Scanner must NEVER fail because macro fetch failed.
-
----
-# 2. Risk Chart Integration
-
-Propagate:
-
-- risk_free_rate
-- dividend_yield
-
-through all Black-Scholes / modelling paths.
-
-Ensure:
-- consistent calculations
-- no mixed assumptions
-- no duplicated logic
-
-IMPORTANT:
-Use ONE central modelling assumptions source.
-
----
-# 3. Benchmark UI Panels
-
-Add UI sections for:
-
-- canonical candidate
-- constrained sweep candidates
-
-Purpose:
-- compare scanner output vs benchmark structures
-- help trader understand market regime
-
-These are comparison tools ONLY.
-
----
-# 4. Target DTE Mode UI
-
-Support UI controls for:
-
-- range mode
-- target mode
-- front target DTE
-- back target DTE
-- tolerance
-
-This was already added to backend models.
-
-Need clean Streamlit integration.
-
----
-# 5. Strike Increment UI
-
-Expose:
-
-- any strike
-- 5-point
-- 10-point
-- 25-point
-
-This improves:
-- practical execution
-- cleaner modelling
-- faster scans
 
 ---
 # Important Coding Rules
@@ -323,6 +375,7 @@ DO:
 - prefer safe fallbacks
 - cache external requests
 - isolate experimental features
+- favor live-trading practicality over theoretical elegance
 
 DO NOT:
 
@@ -333,6 +386,9 @@ DO NOT:
 - add fragile external dependencies
 - add broker write permissions
 - break offline/delayed-data mode
+- add portfolio management
+- add Kelly sizing systems
+- add auto-allocation systems
 
 ---
 # Important User Workflow
@@ -361,14 +417,17 @@ Priority order:
 1. scanner stability
 2. risk graph accuracy
 3. candidate quality
-4. fast live scanning
-5. benchmark comparison tools
-6. UI polish
+4. DTE neighborhood intelligence
+5. market regime awareness
+6. fast live scanning
+7. benchmark comparison tools
+8. UI polish
 
 NOT:
 - broker execution
 - automation
 - portfolio management
+- capital allocation
 
 ---
 # Before Making Major Changes
@@ -385,3 +444,4 @@ The trader values:
 - robustness
 - practical usefulness
 - speed during live trading
+- high-quality candidate discovery
