@@ -43,7 +43,7 @@ This dynamic total-position-delta targeting is intentional and is one of the key
 If one AI session runs out of usage, paste this into the next session:
 
 ```text
-Continue building the local Python project at batman-scanner. It is a macOS Streamlit app using ib_insync, SQLite, and modular scanner files. It scans IBKR option chains for 3-leg Batman CALL candidates only; no order placement or live trade modification is allowed. First inspect the current files and git diff, then continue from docs/ARCHITECTURE_REVIEW.md and the checklist in README.md.
+Continue building the local Python project at batman-scanner. It is a macOS Streamlit app using ib_insync, SQLite, and modular scanner files. It scans IBKR option chains for 3-leg Batman CALL candidates only; no order placement or live trade modification is allowed. First inspect STARTUP_PROMPT.md, docs/ARCHITECTURE_REVIEW.md, README.md, and the current git diff.
 ```
 
 ## MVP Checklist

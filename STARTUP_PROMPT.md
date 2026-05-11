@@ -1,5 +1,7 @@
 # Batman Scanner — AI Startup Prompt
 
+This is the single canonical startup prompt for future AI coding sessions.
+
 Use this prompt when opening this repository in VS Code with Claude/Codex/ChatGPT.
 
 ---
