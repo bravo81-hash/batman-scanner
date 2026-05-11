@@ -110,6 +110,18 @@ class BatmanCandidate:
     delta_theta_ratio_score: float = 0.0
     liquidity_score: float = 0.0
     shape_quality_score: float = 0.0
+
+    # Pre-entry efficiency metrics. These are decision aids only and must not
+    # be used for order placement or trade management.
+    theta_per_credit: float = 0.0
+    positive_theta_per_credit: float = 0.0
+    credit_per_spread_risk: float = 0.0
+    theta_per_spread_risk: float = 0.0
+    theta_per_abs_delta: float = 0.0
+    liquidity_adjusted_credit: float = 0.0
+    liquidity_adjusted_theta: float = 0.0
+    shape_adjusted_score: float = 0.0
+
     rank: int = 0
     created_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
 
@@ -213,5 +225,7 @@ class ScanResult:
     rejection_reasons: dict[str, int] = field(default_factory=dict)
     canonical_candidate: BatmanCandidate | None = None
     sweep_candidates: list[BatmanCandidate] = field(default_factory=list)
+    dte_neighborhoods: list[Any] = field(default_factory=list)
+    market_regime: Any | None = None
     warnings: list[str] = field(default_factory=list)
     mock: bool = False
