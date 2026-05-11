@@ -19,6 +19,7 @@ def select_candidate_strikes(
     underlying_price: float | None,
     max_contracts: int,
     upside_multiplier: float = 1.45,
+    strike_increment: int = 0,
 ) -> list[float]:
     """Return a bounded strike list so live scans do not request too much data.
 
@@ -27,6 +28,8 @@ def select_candidate_strikes(
     price is available, keep a centered slice from the full chain.
     """
     clean = sorted(float(strike) for strike in strikes if float(strike) > 0)
+    if strike_increment > 0:
+        clean = [strike for strike in clean if round(strike) % strike_increment == 0]
     if not clean or max_contracts <= 0:
         return []
 
@@ -81,11 +84,21 @@ def _evenly_spaced_values(values: list[float], count: int) -> list[float]:
     return [values[index] for index in indexes]
 
 
+def _within_target_dte(dte: int, target: int, tolerance: int) -> bool:
+    return abs(dte - target) <= tolerance
+
+
 def filter_expiries(expiries: list[str], settings: ScanSettings, as_of: date | None = None) -> dict[str, int]:
     """Return expiries whose DTE may participate in the scan."""
     dte_by_expiry: dict[str, int] = {}
     for expiry in expiries:
         dte = days_to_expiry(expiry, as_of)
+        if settings.dte_selection_mode == "target":
+            if _within_target_dte(dte, settings.front_target_dte, settings.dte_tolerance) or _within_target_dte(
+                dte, settings.back_target_dte, settings.dte_tolerance
+            ):
+                dte_by_expiry[expiry] = dte
+            continue
         if settings.min_front_dte <= dte <= settings.max_dte:
             dte_by_expiry[expiry] = dte
     return dte_by_expiry
