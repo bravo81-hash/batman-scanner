@@ -120,8 +120,6 @@ class BatmanCandidate:
     @property
     def position_delta(self) -> float:
         # Deltas are stored in 100-delta style, for example 54 instead of 0.54.
-        # After leg quantities offset each other, total_delta is already the
-        # position delta used by options tools.
         return self.total_delta
 
     @property
@@ -187,20 +185,12 @@ class ScanSettings:
     upside_strike_multiplier: float = 1.60
     strike_increment: int = 0
     strategy_preset: str = "dynamic_batman_grid"
-
-    # DTE selection mode. "range" keeps the original scan behavior. "target"
-    # narrows the scan to expiries close to explicit front/back DTE targets.
     dte_selection_mode: str = "range"
     front_target_dte: int = 200
     back_target_dte: int = 260
     dte_tolerance: int = 20
-
-    # Risk-chart modelling assumptions. These are scanner-triage assumptions only;
-    # final trade validation still belongs in OptionNet Explorer.
     risk_free_rate: float = 0.045
     dividend_yield: float = 0.013
-
-    # Optional benchmark sweep mode inputs inspired by the reference Flask tool.
     sweep_long_delta: float = 32.0
     sweep_short_hi_min_delta: float = 48.0
     sweep_short_hi_max_delta: float = 54.0
@@ -221,5 +211,7 @@ class ScanResult:
     skipped_filters: int = 0
     quote_counts_by_expiry: dict[str, dict[str, int | float]] = field(default_factory=dict)
     rejection_reasons: dict[str, int] = field(default_factory=dict)
+    canonical_candidate: BatmanCandidate | None = None
+    sweep_candidates: list[BatmanCandidate] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     mock: bool = False
