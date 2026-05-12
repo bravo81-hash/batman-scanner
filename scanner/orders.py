@@ -55,6 +55,24 @@ def combo_leg_preview_rows(candidate: BatmanCandidate) -> list[dict[str, Any]]:
     return rows
 
 
+def combo_leg_descriptors(candidate: BatmanCandidate) -> list[dict[str, Any]]:
+    descriptors: list[dict[str, Any]] = []
+    for leg in candidate.legs:
+        quote = leg.quote
+        descriptors.append(
+            {
+                "leg": leg.name,
+                "action": leg.action,
+                "ratio": leg.quantity,
+                "symbol": quote.symbol,
+                "expiry": quote.expiry,
+                "strike": quote.strike,
+                "right": quote.right,
+            }
+        )
+    return descriptors
+
+
 def validate_combo_order_inputs(quantity: int, limit_credit: float) -> None:
     if int(quantity) < 1:
         raise ValueError("Order quantity must be at least 1.")

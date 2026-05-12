@@ -1,7 +1,4 @@
-"""Read-only IBKR client wrapper for scanner data.
-
-This module intentionally contains no order placement methods.
-"""
+"""IBKR client wrapper for scanner data and explicit held-order staging."""
 
 from __future__ import annotations
 
@@ -10,13 +7,17 @@ import importlib
 import sys
 from typing import Any, Callable
 
-from scanner.contracts import days_to_expiry
+from scanner.contracts import days_to_expiry, format_ib_expiry
 from scanner.greeks import quote_from_ticker
-from scanner.models import OptionQuote, ScanSettings
+from scanner.models import BatmanCandidate, OptionQuote, ScanSettings
 from scanner.option_chain import select_candidate_strikes
+from scanner.orders import build_held_limit_order_payload, combo_leg_descriptors, validate_combo_order_inputs
 
 IB = None
+Bag = None
+ComboLeg = None
 Index = None
+LimitOrder = None
 Option = None
 Stock = None
 util = None
@@ -43,14 +44,17 @@ def ensure_event_loop() -> asyncio.AbstractEventLoop:
 
 def _load_ib_insync() -> None:
     """Import ib_insync lazily so Streamlit can recover after dependency installs."""
-    global IB, Index, Option, Stock, util, IB_IMPORT_ERROR
+    global IB, Bag, ComboLeg, Index, LimitOrder, Option, Stock, util, IB_IMPORT_ERROR
     if IB is not None:
         return
     try:
         ensure_event_loop()
         module = importlib.import_module("ib_insync")
         IB = module.IB
+        Bag = module.Bag
+        ComboLeg = module.ComboLeg
         Index = module.Index
+        LimitOrder = module.LimitOrder
         Option = module.Option
         Stock = module.Stock
         util = module.util
@@ -96,7 +100,7 @@ def chunk_items(items: list[Any], batch_size: int) -> list[list[Any]]:
 
 
 class IBKRClient:
-    """Small read-only wrapper around ib_insync."""
+    """Small wrapper around ib_insync for scan data and held order staging."""
 
     def __init__(self) -> None:
         ensure_event_loop()
@@ -153,6 +157,62 @@ class IBKRClient:
         price = ticker.marketPrice()
         self.ib.cancelMktData(underlying)
         return float(price) if price and price > 0 else None
+
+    def stage_held_combo_order(
+        self,
+        candidate: BatmanCandidate,
+        settings: ScanSettings,
+        quantity: int,
+        limit_credit: float,
+    ) -> dict[str, Any]:
+        """Stage one untransmitted combo limit order in TWS."""
+        if Bag is None or ComboLeg is None or LimitOrder is None:
+            raise RuntimeError("ib_insync order classes are not available.")
+        validate_combo_order_inputs(quantity, limit_credit)
+
+        descriptors = combo_leg_descriptors(candidate)
+        option_contracts = [
+            Option(
+                descriptor["symbol"],
+                format_ib_expiry(str(descriptor["expiry"])),
+                descriptor["strike"],
+                descriptor["right"],
+                settings.exchange,
+                currency=settings.currency,
+            )
+            for descriptor in descriptors
+        ]
+        qualified = self.ib.qualifyContracts(*option_contracts)
+        if len(qualified) != len(option_contracts):
+            raise RuntimeError("Could not qualify every combo leg contract.")
+
+        combo = Bag(candidate.symbol, settings.exchange, currency=settings.currency)
+        combo.comboLegs = []
+        for descriptor, contract in zip(descriptors, qualified):
+            combo.comboLegs.append(
+                ComboLeg(
+                    conId=contract.conId,
+                    ratio=int(descriptor["ratio"]),
+                    action=descriptor["action"],
+                    exchange=settings.exchange,
+                )
+            )
+
+        payload = build_held_limit_order_payload(quantity, limit_credit)
+        order = LimitOrder(payload.action, payload.totalQuantity, payload.lmtPrice)
+        order.transmit = payload.transmit
+
+        trade = self.ib.placeOrder(combo, order)
+        self.ib.sleep(1)
+        return {
+            "order_id": getattr(trade.order, "orderId", None),
+            "status": getattr(trade.orderStatus, "status", ""),
+            "transmit": bool(getattr(trade.order, "transmit", False)),
+            "display_limit_credit": float(limit_credit),
+            "tws_limit_price": float(getattr(trade.order, "lmtPrice", -limit_credit)),
+            "quantity": int(getattr(trade.order, "totalQuantity", quantity)),
+            "combo_legs": len(getattr(combo, "comboLegs", []) or []),
+        }
 
     def fetch_quotes_for_expiry(
         self,

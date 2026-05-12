@@ -6,6 +6,7 @@ from scanner.models import OptionQuote, ScanResult, ScanSettings
 from scanner.orders import (
     build_held_limit_order_payload,
     can_stage_result_orders,
+    combo_leg_descriptors,
     combo_leg_preview_rows,
     combo_mid_credit,
     validate_combo_order_inputs,
@@ -111,6 +112,44 @@ class OrderHelperTests(unittest.TestCase):
 
         self.assertTrue(can_stage_result_orders(live_result))
         self.assertFalse(can_stage_result_orders(mock_result))
+
+    def test_combo_leg_descriptors_match_selected_candidate_contracts(self) -> None:
+        candidate = candidate_with_mids()
+
+        descriptors = combo_leg_descriptors(candidate)
+
+        self.assertEqual(
+            descriptors,
+            [
+                {
+                    "leg": "SC_High",
+                    "action": "SELL",
+                    "ratio": 1,
+                    "symbol": "SPX",
+                    "expiry": "2027-01-15",
+                    "strike": 5200,
+                    "right": "C",
+                },
+                {
+                    "leg": "LC_Mid",
+                    "action": "BUY",
+                    "ratio": 2,
+                    "symbol": "SPX",
+                    "expiry": "2027-04-16",
+                    "strike": 5600,
+                    "right": "C",
+                },
+                {
+                    "leg": "SC_Low",
+                    "action": "SELL",
+                    "ratio": 1,
+                    "symbol": "SPX",
+                    "expiry": "2027-01-15",
+                    "strike": 6000,
+                    "right": "C",
+                },
+            ],
+        )
 
 
 if __name__ == "__main__":
