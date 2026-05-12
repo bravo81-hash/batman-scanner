@@ -11,7 +11,7 @@ This changes the app boundary from read-only scanning to scanner plus explicit h
 - Let the user choose a scanned combo position from the existing results workspace.
 - Build one IBKR `BAG` combo contract for the whole Batman structure.
 - Stage one combo limit order in TWS with `transmit=False`.
-- Default the limit price to the whole-combo mid credit.
+- Default the user-facing limit credit to the whole-combo mid credit.
 - Show enough preview detail for the user to verify the staged order before sending it to TWS.
 - Keep mock scan results and incomplete candidate data from sending any order.
 
@@ -31,7 +31,7 @@ The section will show:
 
 - selected candidate rank and leg summary
 - conservative estimated credit already used by the scanner
-- calculated whole-combo mid credit for the default limit price
+- calculated whole-combo mid credit for the default user-facing limit credit
 - order quantity, default `1`
 - editable limit credit, defaulting to whole-combo mid credit
 - a confirmation checkbox stating that the app will stage an untransmitted order in TWS
@@ -41,7 +41,7 @@ When clicked, the app connects to TWS using the sidebar connection settings, qua
 
 ## Combo Price
 
-The default limit price is the whole-combo mid credit per one Batman combo:
+The default user-facing limit credit is the whole-combo mid credit per one Batman combo:
 
 ```text
 SC_High short call mid credit
@@ -56,6 +56,8 @@ In code this should be calculated from each leg action and signed quantity:
 - The resulting net credit is rounded to the nearest `0.05` for display and order submission.
 
 `candidate.entry_credit` remains visible as the conservative bid/ask estimate, but it is not the default order price.
+
+The UI should display this value as a positive credit. When building the TWS order, the implementation must use IBKR's signed combo-price convention. For the selected leg directions entered as a `BUY` combo, a net credit is sent to TWS as a negative `lmtPrice`; TWS should still show that the order receives a credit.
 
 ## IBKR Contract And Order Mapping
 
@@ -75,7 +77,7 @@ The staged order maps to one combo limit order:
 - action should represent entering the net-credit combo in IBKR's combo-order terms.
 - total quantity comes from the UI quantity field.
 - order type is `LMT`.
-- limit price defaults to the whole-combo mid credit.
+- limit credit defaults to the whole-combo mid credit, with the TWS `lmtPrice` signed according to IBKR combo-price conventions.
 - `transmit=False`.
 
 Implementation must verify the correct IBKR action and sign convention against `ib_insync` combo order behavior. The tests should protect the app's internal candidate-to-leg mapping, and live paper testing should verify how the held order appears in TWS before any live account use.
