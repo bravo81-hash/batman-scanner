@@ -2,8 +2,14 @@ import unittest
 from typing import Any
 
 from scanner.batman import build_batman_candidate
-from scanner.models import OptionQuote, ScanSettings
-from scanner.orders import combo_mid_credit, validate_combo_order_inputs
+from scanner.models import OptionQuote, ScanResult, ScanSettings
+from scanner.orders import (
+    build_held_limit_order_payload,
+    can_stage_result_orders,
+    combo_leg_preview_rows,
+    combo_mid_credit,
+    validate_combo_order_inputs,
+)
 
 
 DEFAULT_MID = object()
@@ -76,6 +82,35 @@ class OrderHelperTests(unittest.TestCase):
             validate_combo_order_inputs(quantity=0, limit_credit=3.25)
         with self.assertRaisesRegex(ValueError, "limit credit"):
             validate_combo_order_inputs(quantity=1, limit_credit=0)
+
+    def test_combo_leg_preview_rows_show_one_whole_combo(self) -> None:
+        candidate = candidate_with_mids()
+
+        rows = combo_leg_preview_rows(candidate)
+
+        self.assertEqual([row["leg"] for row in rows], ["SC_High", "LC_Mid", "SC_Low"])
+        self.assertEqual([row["action"] for row in rows], ["SELL", "BUY", "SELL"])
+        self.assertEqual([row["ratio"] for row in rows], [1, 2, 1])
+        self.assertEqual(rows[1]["expiry"], "2027-04-16")
+        self.assertEqual(rows[1]["strike"], 5600)
+
+    def test_build_held_limit_order_payload_is_limit_and_not_transmitted(self) -> None:
+        payload = build_held_limit_order_payload(quantity=2, limit_credit=3.25)
+
+        self.assertEqual(payload.action, "BUY")
+        self.assertEqual(payload.totalQuantity, 2)
+        self.assertEqual(payload.orderType, "LMT")
+        self.assertEqual(payload.lmtPrice, -3.25)
+        self.assertFalse(payload.transmit)
+
+    def test_can_stage_result_orders_rejects_mock_results(self) -> None:
+        candidate = candidate_with_mids()
+
+        live_result = ScanResult(settings=ScanSettings(), candidates=[candidate], mock=False)
+        mock_result = ScanResult(settings=ScanSettings(), candidates=[candidate], mock=True)
+
+        self.assertTrue(can_stage_result_orders(live_result))
+        self.assertFalse(can_stage_result_orders(mock_result))
 
 
 if __name__ == "__main__":
