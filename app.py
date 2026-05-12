@@ -589,6 +589,10 @@ def show_results_workspace(
     macro_last_refresh: str,
 ) -> None:
     """Show candidate list and selected risk chart side by side."""
+    show_market_regime(result)
+    show_dte_neighborhoods(result)
+    show_candidate_efficiency(result)
+
     left, right = st.columns([0.34, 0.66], gap="large")
     label_by_rank = {candidate.rank: candidate_picker_label(candidate) for candidate in result.candidates}
 
@@ -843,9 +847,6 @@ def main() -> None:
         result.underlying_price,
         connection.get("manual_underlying_price"),
     )
-    show_market_regime(result)
-    show_dte_neighborhoods(result)
-    show_candidate_efficiency(result)
     show_results_workspace(
         result,
         spot_price,
