@@ -2,7 +2,7 @@
 
 Local Python scanner for Batman-style 3-leg call option structures using Interactive Brokers market data.
 
-This app is scanner-only. It does not place orders, submit orders, modify live trades, or automate execution.
+This app scans Batman candidates and can optionally stage one held, untransmitted TWS combo limit order for the selected candidate. It does not transmit orders, modify live trades, or automate execution.
 
 ## Current Strategy Logic
 
@@ -43,7 +43,7 @@ This dynamic total-position-delta targeting is intentional and is one of the key
 If one AI session runs out of usage, paste this into the next session:
 
 ```text
-Continue building the local Python project at batman-scanner. It is a macOS Streamlit app using ib_insync, SQLite, and modular scanner files. It scans IBKR option chains for 3-leg Batman CALL candidates only; no order placement or live trade modification is allowed. First inspect STARTUP_PROMPT.md, docs/ARCHITECTURE_REVIEW.md, README.md, and the current git diff.
+Continue building the local Python project at batman-scanner. It is a macOS Streamlit app using ib_insync, SQLite, and modular scanner files. It scans IBKR option chains for 3-leg Batman CALL candidates and can stage held, untransmitted TWS combo limit orders for manual review. No transmitted order placement or live trade modification is allowed from the app. First inspect STARTUP_PROMPT.md, docs/ARCHITECTURE_REVIEW.md, README.md, and the current git diff.
 ```
 
 ## MVP Checklist
@@ -51,7 +51,7 @@ Continue building the local Python project at batman-scanner. It is a macOS Stre
 - [x] Create Git/GitHub-friendly Python project structure.
 - [x] Add Streamlit UI that loads without IBKR connected.
 - [x] Add sidebar scanner and IBKR connection settings.
-- [x] Add read-only IBKR client using `ib_insync`.
+- [x] Add IBKR client using `ib_insync`.
 - [x] Add Batman candidate construction logic.
 - [x] Add scoring components and spread penalty.
 - [x] Add SQLite scan history storage.
@@ -123,6 +123,7 @@ Open the local Streamlit URL printed in the terminal.
 8. Click `Refresh Quote Cache` and let the background collector populate local SQLite quotes.
 9. Leave `Run scan from quote cache` checked and click `Run Scan`.
 10. Check skipped-contract warnings. Missing Greeks usually means market data permissions, delayed data, or IBKR model data is unavailable.
+11. In paper TWS only, select a candidate and use `Stage Held Order in TWS`; confirm one held combo limit order appears in TWS with manual transmit still required.
 
 ## Current And Planned Scanner Modes
 
@@ -221,6 +222,11 @@ This may better match the original research scanner.
 - Optional `Manual underlying price` fallback for off-hours strike filtering.
 - `Market data type` selector for live, frozen, delayed, and delayed-frozen IBKR data requests.
 - Background `Refresh Quote Cache` workflow so repeated scans rank from local cached quotes instead of blocking on IBKR.
+- Optional held TWS combo staging:
+  - sends one IBKR `BAG` combo limit order for the selected candidate
+  - defaults the user-facing limit credit to the whole-combo mid credit
+  - sends the signed TWS `lmtPrice` required by IBKR combo-price conventions
+  - uses `transmit=False`, so manual review and transmit in TWS are still required
 
 ## Risk Chart Notes
 
@@ -232,7 +238,7 @@ If the scan reports no candidates during market hours, open `Scan diagnostics` a
 
 ## What Is Intentionally Not Included Yet
 
-- No order placement.
+- No transmitted order placement from the app.
 - No automated execution.
 - No live trade modification.
 - No portfolio management.

@@ -808,7 +808,7 @@ def main() -> None:
     collector = get_quote_collector()
 
     st.title("Batman Scanner")
-    st.caption("Scanner only. No order placement, no live trade modification.")
+    st.caption("Scanner with optional held TWS combo staging. Orders are untransmitted and must be reviewed in TWS.")
 
     with st.expander("Runtime diagnostics"):
         st.write(runtime_diagnostics())
