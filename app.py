@@ -19,6 +19,7 @@ from scanner.market_regime import market_regime_rows
 from scanner.mock_data import mock_scan
 from scanner.models import BatmanCandidate, ScanResult, ScanSettings
 from scanner.option_chain import scan_from_quote_fetcher
+from scanner.orders import can_stage_result_orders, combo_leg_preview_rows, combo_mid_credit
 from scanner.presets import apply_strategy_preset
 from scanner.quote_cache import cache_scan_result, quote_cache_stats
 from scanner.risk_chart import candidate_risk_frame
@@ -522,6 +523,15 @@ def selected_candidate_summary(candidate: BatmanCandidate) -> str:
     )
 
 
+def candidate_order_defaults(candidate: BatmanCandidate) -> dict[str, float | int]:
+    """Return default held-order values for the selected candidate."""
+    return {
+        "quantity": 1,
+        "limit_credit": combo_mid_credit(candidate),
+        "conservative_credit": round(candidate.entry_credit, 2),
+    }
+
+
 def risk_chart_spot_price(
     manual_chart_price: float | None,
     result_underlying_price: float | None,
@@ -581,12 +591,88 @@ def show_risk_chart(candidate: BatmanCandidate, spot_price: float, settings: Sca
     st.plotly_chart(fig, use_container_width=True)
 
 
+def show_held_order_panel(
+    candidate: BatmanCandidate,
+    result: ScanResult,
+    settings: ScanSettings,
+    connection: dict[str, Any],
+    status_box: Any,
+) -> None:
+    """Render controls for staging the selected candidate as one held TWS combo order."""
+    with st.expander("Held TWS Combo Order", expanded=False):
+        if not can_stage_result_orders(result):
+            st.info("Held order staging is disabled for mock results.")
+            return
+
+        try:
+            defaults = candidate_order_defaults(candidate)
+            preview_rows = combo_leg_preview_rows(candidate)
+        except ValueError as error:
+            st.warning(f"Cannot stage this candidate: {error}")
+            return
+
+        if float(defaults["limit_credit"]) <= 0:
+            st.warning("Cannot stage this candidate because the whole-combo mid credit is not positive.")
+            return
+
+        st.write(
+            {
+                "whole_combo_mid_credit": defaults["limit_credit"],
+                "conservative_credit": defaults["conservative_credit"],
+            }
+        )
+        st.dataframe(pd.DataFrame(preview_rows), use_container_width=True, hide_index=True)
+
+        quantity = st.number_input(
+            "Combo quantity",
+            min_value=1,
+            value=int(defaults["quantity"]),
+            step=1,
+            key=f"held_order_qty_{candidate.rank}",
+        )
+        limit_credit = st.number_input(
+            "Limit credit",
+            min_value=0.05,
+            value=float(defaults["limit_credit"]),
+            step=0.05,
+            key=f"held_order_limit_{candidate.rank}",
+        )
+        confirmed = st.checkbox(
+            "Stage this as an untransmitted held order in TWS for manual review.",
+            value=False,
+            key=f"held_order_confirm_{candidate.rank}",
+        )
+        if st.button(
+            "Stage Held Order in TWS",
+            disabled=not confirmed,
+            key=f"stage_held_order_{candidate.rank}",
+        ):
+            client = IBKRClient()
+            try:
+                status_box.info("connecting to IBKR for held order staging")
+                client.connect(connection["host"], connection["port"], connection["client_id"])
+                result_payload = client.stage_held_combo_order(
+                    candidate,
+                    settings,
+                    quantity=int(quantity),
+                    limit_credit=float(limit_credit),
+                )
+                status_box.success("Held combo order staged in TWS. Review and transmit manually in TWS.")
+                st.write(result_payload)
+            except Exception as error:
+                status_box.error(f"Held order staging failed: {error}")
+            finally:
+                client.disconnect()
+
+
 def show_results_workspace(
     result: ScanResult,
     spot_price: float,
     risk_settings: ScanSettings,
     macro_source: str,
     macro_last_refresh: str,
+    connection: dict[str, Any],
+    status_box: Any,
 ) -> None:
     """Show candidate list and selected risk chart side by side."""
     show_market_regime(result)
@@ -653,6 +739,8 @@ def show_results_workspace(
                 use_container_width=True,
                 hide_index=True,
             )
+
+        show_held_order_panel(selected_candidate, result, risk_settings, connection, status_box)
 
 
 def run_ibkr_scan(settings: ScanSettings, connection: dict[str, Any], status_box: Any) -> ScanResult:
@@ -853,6 +941,8 @@ def main() -> None:
         settings,
         connection.get("macro_source", "manual"),
         connection.get("macro_last_refresh", ""),
+        connection,
+        status_box,
     )
 
     with st.expander("All Candidate Details", expanded=False):

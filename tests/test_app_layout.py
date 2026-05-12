@@ -2,6 +2,7 @@ import unittest
 
 from app import (
     benchmark_candidate_rows,
+    candidate_order_defaults,
     candidate_picker_label,
     candidate_rows,
     macro_assumption_rows,
@@ -106,6 +107,27 @@ class AppLayoutTests(unittest.TestCase):
         self.assertIn("D/T score", row)
         self.assertIn("liquidity score", row)
         self.assertIn("shape quality score", row)
+
+    def test_candidate_order_defaults_use_combo_mid_credit(self) -> None:
+        candidate = build_batman_candidate(
+            symbol="SPX",
+            front_expiry="2027-01-15",
+            back_expiry="2027-04-16",
+            front_dte=253,
+            back_dte=344,
+            sc_high=quote("2027-01-15", 5200, 55, 9.5, 10.5),
+            lc_mid=quote("2027-04-16", 5600, 33, 3.5, 4.5),
+            front_quotes=[quote("2027-01-15", 6000, 8, 1.0, 1.5)],
+            target_total_delta=3,
+            settings=ScanSettings(),
+        )
+        assert candidate is not None
+
+        defaults = candidate_order_defaults(candidate)
+
+        self.assertEqual(defaults["quantity"], 1)
+        self.assertEqual(defaults["limit_credit"], 3.25)
+        self.assertIn("conservative_credit", defaults)
 
     def test_benchmark_candidate_rows_include_comparison_fields(self) -> None:
         candidate = build_batman_candidate(
