@@ -10,9 +10,12 @@ import streamlit as st
 from scanner.config import ibkr_config, load_config, settings_from_config
 from scanner.collector import QuoteCacheCollector
 from scanner.database import save_scan_history
+from scanner.dte_neighborhoods import dte_neighborhood_rows
+from scanner.efficiency import efficiency_rows
 from scanner.export import candidates_to_csv
 from scanner.ibkr_client import IBKRClient, resolve_underlying_price, runtime_diagnostics, summarize_chain
 from scanner.macro_data import macro_cache_status, resolve_macro_inputs
+from scanner.market_regime import market_regime_rows
 from scanner.mock_data import mock_scan
 from scanner.models import BatmanCandidate, ScanResult, ScanSettings
 from scanner.option_chain import scan_from_quote_fetcher
@@ -101,6 +104,30 @@ def rejection_reason_rows(result: ScanResult) -> list[dict[str, Any]]:
         {"reason": reason, "count": count}
         for reason, count in sorted(result.rejection_reasons.items(), key=lambda item: item[1], reverse=True)
     ]
+
+
+def show_market_regime(result: ScanResult) -> None:
+    """Show the scanner-only market regime snapshot."""
+    rows = market_regime_rows(result.market_regime)
+    if rows:
+        with st.expander("Market Regime", expanded=False):
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+
+def show_dte_neighborhoods(result: ScanResult) -> None:
+    """Show ranked front/back DTE neighborhoods from the scan result."""
+    rows = dte_neighborhood_rows(result.dte_neighborhoods)
+    if rows:
+        with st.expander("DTE Neighborhoods", expanded=False):
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+
+def show_candidate_efficiency(result: ScanResult) -> None:
+    """Show pre-entry candidate efficiency metrics."""
+    rows = efficiency_rows(result.candidates)
+    if rows:
+        with st.expander("Candidate Efficiency", expanded=False):
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
 def macro_assumption_rows(
@@ -816,6 +843,9 @@ def main() -> None:
         result.underlying_price,
         connection.get("manual_underlying_price"),
     )
+    show_market_regime(result)
+    show_dte_neighborhoods(result)
+    show_candidate_efficiency(result)
     show_results_workspace(
         result,
         spot_price,
