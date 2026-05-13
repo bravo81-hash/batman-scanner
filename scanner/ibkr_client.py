@@ -186,7 +186,7 @@ class IBKRClient:
         if len(qualified) != len(option_contracts):
             raise RuntimeError("Could not qualify every combo leg contract.")
 
-        combo = Bag(candidate.symbol, settings.exchange, currency=settings.currency)
+        combo = Bag(symbol=candidate.symbol, exchange=settings.exchange, currency=settings.currency)
         combo.comboLegs = []
         for descriptor, contract in zip(descriptors, qualified):
             combo.comboLegs.append(
