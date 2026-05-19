@@ -6,6 +6,8 @@ from app import (
     candidate_order_defaults,
     candidate_picker_label,
     candidate_rows,
+    diagnosis_market_points_from_rows,
+    diagnosis_summary_rows,
     macro_assumption_rows,
     rejection_reason_rows,
     risk_chart_spot_price,
@@ -13,6 +15,7 @@ from app import (
 )
 from scanner.batman import build_batman_candidate
 from scanner.models import OptionQuote, ScanResult, ScanSettings
+from scanner.trade_diagnostics import DiagnosticInput, diagnose
 
 
 def quote(expiry: str, strike: float, delta: float, bid: float, ask: float) -> OptionQuote:
@@ -131,6 +134,43 @@ class AppLayoutTests(unittest.TestCase):
         self.assertAlmostEqual(float(defaults["current_delta"]), candidate.position_delta)
         self.assertAlmostEqual(float(defaults["entry_vega"]), candidate.position_vega)
         self.assertAlmostEqual(float(defaults["current_vega"]), candidate.position_vega)
+
+    def test_diagnosis_market_points_from_rows_keeps_partial_symbols(self) -> None:
+        points = diagnosis_market_points_from_rows(
+            {
+                "spx": {"open": 7415.0, "now": 7374.0},
+                "vix": {"open": 19.25, "now": None},
+                "vvix": {"open": None, "now": None},
+            }
+        )
+
+        self.assertEqual(points["SPX"].open, 7415.0)
+        self.assertEqual(points["SPX"].now, 7374.0)
+        self.assertEqual(points["VIX"].open, 19.25)
+        self.assertIsNone(points["VIX"].now)
+        self.assertNotIn("VVIX", points)
+
+    def test_diagnosis_summary_rows_include_report_headline_fields(self) -> None:
+        report = diagnose(
+            DiagnosticInput(
+                strategy="batman",
+                trade_pnl=-450,
+                market_points=diagnosis_market_points_from_rows(
+                    {
+                        "SPX": {"open": 7415.0, "now": 7374.0},
+                        "VIX9D": {"open": 16.81, "now": 17.45},
+                        "VIX1D": {"open": 10.51, "now": 12.07},
+                    }
+                ),
+            )
+        )
+
+        rows = diagnosis_summary_rows(report)
+
+        self.assertEqual(rows[0]["field"], "Verdict")
+        self.assertEqual(rows[0]["value"], "red trade")
+        self.assertIn({"field": "Primary driver", "value": report.primary_driver}, rows)
+        self.assertIn({"field": "Bias", "value": report.bias}, rows)
 
     def test_candidate_order_defaults_use_combo_mid_credit(self) -> None:
         candidate = build_batman_candidate(

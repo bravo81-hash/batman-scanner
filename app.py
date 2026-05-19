@@ -88,6 +88,28 @@ def candidate_diagnosis_defaults(candidate: BatmanCandidate) -> dict[str, float 
     }
 
 
+def diagnosis_market_points_from_rows(rows: dict[str, dict[str, float | None]]) -> dict[str, MarketPoint]:
+    """Convert editable diagnosis market rows into normalized market points."""
+    raw: dict[str, tuple[float | None, float | None]] = {}
+    for symbol, values in rows.items():
+        open_value = values.get("open")
+        now_value = values.get("now")
+        if open_value is None and now_value is None:
+            continue
+        raw[symbol] = (open_value, now_value)
+    return build_market_points(raw)
+
+
+def diagnosis_summary_rows(report: DiagnosticReport) -> list[dict[str, str]]:
+    """Return compact summary rows for a diagnosis report."""
+    return [
+        {"field": "Verdict", "value": report.verdict},
+        {"field": "Regime", "value": report.regime},
+        {"field": "Primary driver", "value": report.primary_driver},
+        {"field": "Bias", "value": report.bias},
+    ]
+
+
 def benchmark_candidate_rows(candidates: list[BatmanCandidate], label: str) -> list[dict[str, Any]]:
     """Return compact benchmark rows for scanner-vs-reference comparison."""
     rows: list[dict[str, Any]] = []
