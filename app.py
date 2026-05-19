@@ -23,9 +23,12 @@ from scanner.orders import can_stage_result_orders, combo_leg_preview_rows, comb
 from scanner.presets import apply_strategy_preset
 from scanner.quote_cache import cache_scan_result, quote_cache_stats
 from scanner.risk_chart import candidate_risk_frame
+from scanner.trade_diagnostics import DiagnosticInput, DiagnosticReport, MarketPoint, build_market_points, diagnose
 
 
 st.set_page_config(page_title="Batman Scanner", layout="wide")
+
+DIAGNOSIS_MARKET_SYMBOLS: tuple[str, ...] = ("SPX", "VIX", "VIX9D", "VIX1D", "VIX3M", "VIX6M", "VVIX")
 
 
 @st.cache_resource
@@ -72,6 +75,17 @@ def candidate_rows(candidates: list[BatmanCandidate]) -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+def candidate_diagnosis_defaults(candidate: BatmanCandidate) -> dict[str, float | str]:
+    """Return selected-candidate defaults for trade outcome diagnosis."""
+    return {
+        "strategy": "batman",
+        "entry_delta": round(candidate.position_delta, 2),
+        "current_delta": round(candidate.position_delta, 2),
+        "entry_vega": round(candidate.position_vega, 2),
+        "current_vega": round(candidate.position_vega, 2),
+    }
 
 
 def benchmark_candidate_rows(candidates: list[BatmanCandidate], label: str) -> list[dict[str, Any]]:
