@@ -110,6 +110,28 @@ def diagnosis_summary_rows(report: DiagnosticReport) -> list[dict[str, str]]:
     ]
 
 
+def build_diagnostic_input(
+    *,
+    strategy: str,
+    trade_pnl: float,
+    entry_delta: float | None,
+    current_delta: float | None,
+    entry_vega: float | None,
+    current_vega: float | None,
+    market_rows: dict[str, dict[str, float | None]],
+) -> DiagnosticInput:
+    """Build a deterministic diagnosis input from app form values."""
+    return DiagnosticInput(
+        strategy=strategy,
+        trade_pnl=trade_pnl,
+        entry_delta=entry_delta,
+        current_delta=current_delta,
+        entry_vega=entry_vega,
+        current_vega=current_vega,
+        market_points=diagnosis_market_points_from_rows(market_rows),
+    )
+
+
 def benchmark_candidate_rows(candidates: list[BatmanCandidate], label: str) -> list[dict[str, Any]]:
     """Return compact benchmark rows for scanner-vs-reference comparison."""
     rows: list[dict[str, Any]] = []
@@ -627,6 +649,111 @@ def show_risk_chart(candidate: BatmanCandidate, spot_price: float, settings: Sca
     st.plotly_chart(fig, use_container_width=True)
 
 
+def show_trade_outcome_diagnosis(candidate: BatmanCandidate) -> None:
+    """Render deterministic trade outcome diagnostics for the selected candidate."""
+    defaults = candidate_diagnosis_defaults(candidate)
+
+    with st.expander("Trade Outcome Diagnosis", expanded=False):
+        st.caption(
+            "Deterministic diagnostics only. Use this to separate spot, vol-curve, Greek, and mark pressure before making trade decisions."
+        )
+
+        top_cols = st.columns([1, 1, 1])
+        with top_cols[0]:
+            strategy = st.text_input(
+                "Strategy",
+                value=str(defaults["strategy"]),
+                key=f"diagnosis_strategy_{candidate.rank}",
+            )
+            trade_pnl = st.number_input(
+                "Trade PnL",
+                value=0.0,
+                step=25.0,
+                key=f"diagnosis_trade_pnl_{candidate.rank}",
+            )
+        with top_cols[1]:
+            entry_delta = st.number_input(
+                "Entry delta",
+                value=float(defaults["entry_delta"]),
+                step=0.5,
+                key=f"diagnosis_entry_delta_{candidate.rank}",
+            )
+            current_delta = st.number_input(
+                "Current delta",
+                value=float(defaults["current_delta"]),
+                step=0.5,
+                key=f"diagnosis_current_delta_{candidate.rank}",
+            )
+        with top_cols[2]:
+            entry_vega = st.number_input(
+                "Entry vega",
+                value=float(defaults["entry_vega"]),
+                step=1.0,
+                key=f"diagnosis_entry_vega_{candidate.rank}",
+            )
+            current_vega = st.number_input(
+                "Current vega",
+                value=float(defaults["current_vega"]),
+                step=1.0,
+                key=f"diagnosis_current_vega_{candidate.rank}",
+            )
+
+        st.write("Open/current market snapshot")
+        market_rows: dict[str, dict[str, float | None]] = {}
+        for symbol in DIAGNOSIS_MARKET_SYMBOLS:
+            cols = st.columns([0.25, 0.375, 0.375])
+            cols[0].write(symbol)
+            open_value = cols[1].number_input(
+                f"{symbol} open",
+                value=None,
+                step=0.01,
+                key=f"diagnosis_{candidate.rank}_{symbol.lower()}_open",
+                label_visibility="collapsed",
+                placeholder="open",
+            )
+            now_value = cols[2].number_input(
+                f"{symbol} now",
+                value=None,
+                step=0.01,
+                key=f"diagnosis_{candidate.rank}_{symbol.lower()}_now",
+                label_visibility="collapsed",
+                placeholder="now",
+            )
+            market_rows[symbol] = {"open": open_value, "now": now_value}
+
+        report = diagnose(
+            build_diagnostic_input(
+                strategy=strategy,
+                trade_pnl=float(trade_pnl),
+                entry_delta=float(entry_delta),
+                current_delta=float(current_delta),
+                entry_vega=float(entry_vega),
+                current_vega=float(current_vega),
+                market_rows=market_rows,
+            )
+        )
+
+        st.dataframe(pd.DataFrame(diagnosis_summary_rows(report)), use_container_width=True, hide_index=True)
+        st.write(report.summary)
+
+        if report.signals:
+            st.write("Why red / why green")
+            st.dataframe(
+                pd.DataFrame([signal.__dict__ for signal in report.signals]),
+                use_container_width=True,
+                hide_index=True,
+            )
+        if report.snapshot_rows:
+            with st.expander("Market Snapshot", expanded=False):
+                st.dataframe(pd.DataFrame(report.snapshot_rows), use_container_width=True, hide_index=True)
+        if report.ratio_rows:
+            st.write("Term-structure ratios")
+            st.dataframe(pd.DataFrame(report.ratio_rows), use_container_width=True, hide_index=True)
+        if report.action_rows:
+            st.write("Adjustment bias checklist")
+            st.dataframe(pd.DataFrame(report.action_rows), use_container_width=True, hide_index=True)
+
+
 def show_held_order_panel(
     candidate: BatmanCandidate,
     result: ScanResult,
@@ -759,6 +886,8 @@ def show_results_workspace(
                 use_container_width=True,
                 hide_index=True,
             )
+
+        show_trade_outcome_diagnosis(selected_candidate)
 
         benchmark_rows: list[dict[str, Any]] = []
         if result.canonical_candidate is not None:

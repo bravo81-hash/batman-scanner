@@ -2,6 +2,7 @@ import unittest
 
 from app import (
     benchmark_candidate_rows,
+    build_diagnostic_input,
     candidate_diagnosis_defaults,
     candidate_order_defaults,
     candidate_picker_label,
@@ -171,6 +172,37 @@ class AppLayoutTests(unittest.TestCase):
         self.assertEqual(rows[0]["value"], "red trade")
         self.assertIn({"field": "Primary driver", "value": report.primary_driver}, rows)
         self.assertIn({"field": "Bias", "value": report.bias}, rows)
+
+    def test_diagnosis_helpers_build_report_with_incomplete_snapshot(self) -> None:
+        candidate = build_batman_candidate(
+            symbol="SPX",
+            front_expiry="2027-01-15",
+            back_expiry="2027-04-16",
+            front_dte=253,
+            back_dte=344,
+            sc_high=quote("2027-01-15", 5200, 55, 35, 36),
+            lc_mid=quote("2027-04-16", 5600, 33, 12, 13),
+            front_quotes=[quote("2027-01-15", 6000, 8, 3, 4)],
+            target_total_delta=3,
+            settings=ScanSettings(),
+        )
+        assert candidate is not None
+        defaults = candidate_diagnosis_defaults(candidate)
+
+        diagnostic_input = build_diagnostic_input(
+            strategy=str(defaults["strategy"]),
+            trade_pnl=0.0,
+            entry_delta=float(defaults["entry_delta"]),
+            current_delta=float(defaults["current_delta"]),
+            entry_vega=float(defaults["entry_vega"]),
+            current_vega=float(defaults["current_vega"]),
+            market_rows={"SPX": {"open": 7415.0, "now": None}},
+        )
+        report = diagnose(diagnostic_input)
+
+        self.assertEqual(report.verdict, "flat trade")
+        self.assertGreaterEqual(len(report.signals), 1)
+        self.assertGreaterEqual(len(diagnosis_summary_rows(report)), 4)
 
     def test_candidate_order_defaults_use_combo_mid_credit(self) -> None:
         candidate = build_batman_candidate(
