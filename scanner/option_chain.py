@@ -12,6 +12,7 @@ from scanner.dte_neighborhoods import build_dte_neighborhoods
 from scanner.efficiency import apply_candidate_efficiency
 from scanner.market_regime import build_market_regime_snapshot
 from scanner.models import OptionQuote, ScanResult, ScanSettings
+from scanner.research_scores import apply_research_scores
 from scanner.scoring import rank_candidates
 
 
@@ -142,6 +143,7 @@ def scan_from_quote_fetcher(
     expiries: list[str],
     fetch_quotes_for_expiry: Callable[[str], list[OptionQuote]],
     progress: ProgressCallback | None = None,
+    underlying_price: float | None = None,
 ) -> ScanResult:
     """Scan using a caller-provided quote fetch function."""
     progress = progress or (lambda message: None)
@@ -177,6 +179,9 @@ def scan_from_quote_fetcher(
     ranked = rank_candidates(candidates, settings)
     ranked = [apply_candidate_efficiency(candidate) for candidate in ranked]
 
+    progress("applying phase 1 research scores")
+    ranked = apply_research_scores(ranked, underlying_price)
+
     progress("building DTE neighborhoods")
     dte_neighborhoods = build_dte_neighborhoods(quotes_by_expiry, dte_by_expiry, settings)
 
@@ -206,6 +211,7 @@ def scan_from_quote_fetcher(
     return ScanResult(
         settings=settings,
         candidates=ranked[: settings.max_results],
+        underlying_price=underlying_price,
         skipped_missing_data=skipped_missing_data,
         skipped_filters=max(len(candidates) - len(ranked), 0),
         quote_counts_by_expiry=quote_counts_by_expiry,
