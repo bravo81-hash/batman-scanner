@@ -262,8 +262,15 @@ def cache_scan_result(
     def fetch_quotes(expiry: str) -> list[OptionQuote]:
         return load_cached_quotes(settings.symbol, expiry, max_age_seconds, db_path)
 
-    result = scan_from_quote_fetcher(settings, expiries, fetch_quotes)
-    result.underlying_price = load_cache_underlying_price(settings.symbol, max_age_seconds, db_path)
+    underlying_price = load_cache_underlying_price(settings.symbol, max_age_seconds, db_path)
+
+    result = scan_from_quote_fetcher(
+        settings,
+        expiries,
+        fetch_quotes,
+        underlying_price=underlying_price,
+    )
+    result.underlying_price = underlying_price
     if not result.candidates:
         result.warnings.append("Cached quotes were available, but no candidates matched the filters.")
     return result
