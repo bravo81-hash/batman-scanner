@@ -111,6 +111,17 @@ class BatmanCandidate:
     liquidity_score: float = 0.0
     shape_quality_score: float = 0.0
 
+    # Phase 1 research scores. These are diagnostic columns only. They do not
+    # filter, rank, size, or stage orders until explicitly wired into a later
+    # scoring mode.
+    bqi_v4_proxy: float | None = None
+    bqi_v4_percentile: float | None = None
+    tx_score_v7_proxy: float | None = None
+    tx_score_v7_percentile: float | None = None
+    put_skew_own: float | None = None
+    sdex_percentile: float | None = None
+    research_quality_bucket: str = "unscored"
+
     # Pre-entry efficiency metrics. These are decision aids only and must not
     # be used for order placement or trade management.
     theta_per_credit: float = 0.0
