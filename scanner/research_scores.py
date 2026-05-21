@@ -197,9 +197,8 @@ def _assign_percentiles(
 def _quality_bucket(candidate: BatmanCandidate) -> str:
     bqi = candidate.bqi_v4_percentile or 0.0
     tx = candidate.tx_score_v7_percentile or 0.0
-    skew = candidate.sdex_percentile or 0.0
 
-    if bqi >= 80 and tx >= 80 and skew >= 80:
+    if bqi >= 80 and tx >= 80:
         return "elite"
     if bqi >= 70 and tx >= 70:
         return "strong"

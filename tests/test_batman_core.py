@@ -164,6 +164,40 @@ class BatmanCoreTests(unittest.TestCase):
         self.assertIn("LC_Mid,BUY,2", csv_text)
         self.assertIn("SC_Low,SELL,1", csv_text)
 
+    def test_csv_export_includes_phase_1_research_score_columns(self) -> None:
+        settings = ScanSettings()
+        candidate = build_batman_candidate(
+            symbol="SPX",
+            front_expiry="2026-10-16",
+            back_expiry="2027-01-15",
+            front_dte=162,
+            back_dte=253,
+            sc_high=quote("2026-10-16", 5200, 54, 30, 32),
+            lc_mid=quote("2027-01-15", 5600, 32, 10, 11),
+            front_quotes=[quote("2026-10-16", 6000, 7, 1.5, 2.0)],
+            target_total_delta=3,
+            settings=settings,
+            as_of=date(2026, 5, 7),
+        )
+
+        assert candidate is not None
+        candidate.bqi_v4_proxy = 1.23456
+        candidate.bqi_v4_percentile = 80.0
+        candidate.tx_score_v7_proxy = 2.34567
+        candidate.tx_score_v7_percentile = 70.0
+        candidate.put_skew_own = 3.45678
+        candidate.sdex_percentile = 60.0
+        candidate.research_quality_bucket = "strong"
+
+        csv_text = candidates_to_csv([candidate])
+
+        self.assertIn("bqi_v4_proxy", csv_text)
+        self.assertIn("tx_score_v7_proxy", csv_text)
+        self.assertIn("research_quality", csv_text)
+        self.assertNotIn("put_skew_proxy", csv_text)
+        self.assertNotIn("sdex_percentile", csv_text)
+        self.assertIn("1.2346,80.0,2.3457,70.0,strong", csv_text)
+
     def test_expiry_pairing_modes_choose_expected_back_expiries(self) -> None:
         expiries = ["20270115", "20270219", "20270416", "20270618"]
         dte_by_expiry = {
@@ -239,6 +273,38 @@ class BatmanCoreTests(unittest.TestCase):
 
         self.assertEqual(candidates, [])
         self.assertEqual(rejection_reasons["no_sc_low"], 1)
+
+    def test_build_candidates_deduplicates_identical_expiry_and_strike_combinations(self) -> None:
+        settings = ScanSettings(
+            sc_high_min_delta=45,
+            sc_high_max_delta=60,
+            sc_high_delta_step=5,
+            lc_mid_min_offset=18,
+            lc_mid_max_offset=26,
+            lc_mid_offset_step=2,
+        )
+        front_quotes = [
+            quote("2027-01-15", 7725, 55, 35, 36),
+            quote("2027-01-15", 8900, 7, 3, 4),
+        ]
+        back_quotes = [
+            quote("2027-04-16", 8400, 33, 12, 13),
+        ]
+        rejection_reasons: dict[str, int] = {}
+
+        candidates = build_candidates_from_quotes(
+            "SPX",
+            {"2027-01-15": front_quotes, "2027-04-16": back_quotes},
+            {"2027-01-15": 224, "2027-04-16": 314},
+            settings,
+            rejection_reasons=rejection_reasons,
+        )
+
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0].sc_high.quote.strike, 7725)
+        self.assertEqual(candidates[0].lc_mid.quote.strike, 8400)
+        self.assertEqual(candidates[0].sc_low.quote.strike, 8900)
+        self.assertGreater(rejection_reasons["duplicate_candidate"], 0)
 
 
 if __name__ == "__main__":

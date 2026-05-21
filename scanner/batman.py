@@ -154,6 +154,17 @@ def back_expiries_for_front(
     return later_expiries
 
 
+def candidate_identity_key(candidate: BatmanCandidate) -> tuple[str, str, float, float, float]:
+    """Return the expiry/strike identity for a concrete three-leg setup."""
+    return (
+        candidate.front_expiry,
+        candidate.back_expiry,
+        candidate.sc_high.quote.strike,
+        candidate.lc_mid.quote.strike,
+        candidate.sc_low.quote.strike,
+    )
+
+
 def build_candidates_from_quotes(
     symbol: str,
     quotes_by_expiry: dict[str, list[OptionQuote]],
@@ -163,6 +174,7 @@ def build_candidates_from_quotes(
 ) -> list[BatmanCandidate]:
     """Build candidates from already-fetched quotes grouped by expiry."""
     candidates: list[BatmanCandidate] = []
+    seen_candidates: set[tuple[str, str, float, float, float]] = set()
     expiries = sorted(quotes_by_expiry.keys())
 
     sc_targets = range(
@@ -210,6 +222,11 @@ def build_candidates_from_quotes(
                         settings=settings,
                     )
                     if candidate is not None:
+                        key = candidate_identity_key(candidate)
+                        if key in seen_candidates:
+                            add_rejection(rejection_reasons, "duplicate_candidate")
+                            continue
+                        seen_candidates.add(key)
                         candidates.append(candidate)
                     elif reason is not None:
                         add_rejection(rejection_reasons, reason)

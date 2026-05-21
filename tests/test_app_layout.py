@@ -3,15 +3,18 @@ import unittest
 from app import (
     benchmark_candidate_rows,
     build_diagnostic_input,
+    candidate_decision_rows,
     candidate_diagnosis_defaults,
     candidate_order_defaults,
     candidate_picker_label,
     candidate_rows,
     diagnosis_market_points_from_rows,
     diagnosis_summary_rows,
+    exception_detail,
     macro_assumption_rows,
     rejection_reason_rows,
     risk_chart_spot_price,
+    sdex_regime_summary,
     selected_candidate_summary,
 )
 from scanner.batman import build_batman_candidate
@@ -112,6 +115,82 @@ class AppLayoutTests(unittest.TestCase):
         self.assertIn("D/T score", row)
         self.assertIn("liquidity score", row)
         self.assertIn("shape quality score", row)
+
+    def test_candidate_rows_include_phase_1_research_score_fields(self) -> None:
+        candidate = build_batman_candidate(
+            symbol="SPX",
+            front_expiry="2027-01-15",
+            back_expiry="2027-04-16",
+            front_dte=253,
+            back_dte=344,
+            sc_high=quote("2027-01-15", 5200, 55, 35, 36),
+            lc_mid=quote("2027-04-16", 5600, 33, 12, 13),
+            front_quotes=[quote("2027-01-15", 6000, 8, 3, 4)],
+            target_total_delta=3,
+            settings=ScanSettings(),
+        )
+        assert candidate is not None
+        candidate.bqi_v4_proxy = 1.23456
+        candidate.bqi_v4_percentile = 80.0
+        candidate.tx_score_v7_proxy = 2.34567
+        candidate.tx_score_v7_percentile = 70.0
+        candidate.put_skew_own = 3.45678
+        candidate.sdex_percentile = 60.0
+        candidate.research_quality_bucket = "strong"
+
+        row = candidate_rows([candidate])[0]
+
+        self.assertEqual(row["BQI v4 proxy"], 1.2346)
+        self.assertEqual(row["BQI v4 percentile"], 80.0)
+        self.assertEqual(row["TX_SCORE v7 proxy"], 2.3457)
+        self.assertEqual(row["TX_SCORE v7 percentile"], 70.0)
+        self.assertNotIn("put skew proxy", row)
+        self.assertNotIn("SDEX percentile", row)
+        self.assertEqual(row["research quality"], "strong")
+
+    def test_candidate_decision_rows_are_compact_for_pre_entry_selection(self) -> None:
+        candidate = build_batman_candidate(
+            symbol="SPX",
+            front_expiry="2027-01-15",
+            back_expiry="2027-04-16",
+            front_dte=253,
+            back_dte=344,
+            sc_high=quote("2027-01-15", 5200, 55, 35, 36),
+            lc_mid=quote("2027-04-16", 5600, 33, 12, 13),
+            front_quotes=[quote("2027-01-15", 6000, 8, 3, 4)],
+            target_total_delta=3,
+            settings=ScanSettings(),
+        )
+        assert candidate is not None
+        candidate.rank = 1
+        candidate.bqi_v4_percentile = 82.0
+        candidate.tx_score_v7_percentile = 88.0
+        candidate.research_quality_bucket = "strong"
+
+        row = candidate_decision_rows([candidate])[0]
+
+        self.assertEqual(row["rank"], 1)
+        self.assertEqual(row["quality"], "strong")
+        self.assertEqual(row["BQI %"], 82.0)
+        self.assertEqual(row["TX %"], 88.0)
+        self.assertIn("strikes", row)
+        self.assertNotIn("put skew proxy", row)
+        self.assertNotIn("SDEX percentile", row)
+        self.assertNotIn("total gamma", row)
+
+    def test_sdex_regime_summary_labels_live_regime_without_candidate_proxy(self) -> None:
+        favorable = sdex_regime_summary(82.25, "IBKR SDEX")
+        unavailable = sdex_regime_summary(None, "")
+
+        self.assertEqual(favorable["SDEX"], "82.25")
+        self.assertEqual(favorable["source"], "IBKR SDEX")
+        self.assertEqual(favorable["regime"], "high skew")
+        self.assertEqual(favorable["entry bias"], "favorable")
+        self.assertEqual(unavailable["SDEX"], "unavailable")
+        self.assertEqual(unavailable["entry bias"], "no SDEX read")
+
+    def test_exception_detail_keeps_blank_timeout_errors_visible(self) -> None:
+        self.assertEqual(exception_detail(TimeoutError()), "TimeoutError()")
 
     def test_candidate_diagnosis_defaults_prefill_selected_candidate_context(self) -> None:
         candidate = build_batman_candidate(

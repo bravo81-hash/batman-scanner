@@ -158,6 +158,68 @@ class IBKRClient:
         self.ib.cancelMktData(underlying)
         return float(price) if price and price > 0 else None
 
+    def get_sdex_value(self) -> float | None:
+        """Fetch the best available Nations SkewDex value from TWS/IBKR."""
+        value, _source = self.get_sdex_snapshot()
+        return value
+
+    def get_sdex_snapshot(self) -> tuple[float | None, str]:
+        """Fetch live SDEX, falling back to the latest IBKR daily close."""
+        sdex = self._qualify_sdex_contract()
+        live_value = None
+        failures: list[str] = []
+        try:
+            live_value = self._market_price(sdex)
+        except Exception as error:
+            failures.append(f"live {type(error).__name__}: {error!r}")
+        if live_value is not None:
+            return live_value, "IBKR SDEX"
+
+        previous_close = self._historical_close(sdex, failures)
+        if previous_close is not None:
+            return previous_close, "IBKR SDEX previous close"
+        detail = "; ".join(failures)
+        return None, f"IBKR SDEX unavailable: {detail}" if detail else "IBKR SDEX unavailable"
+
+    def _qualify_sdex_contract(self) -> Any:
+        if Index is None:
+            raise RuntimeError("ib_insync Index class is not available.")
+        contract = Index("SDEX", "NASDAQ", "USD")
+        qualified = self.ib.qualifyContracts(contract)
+        if not qualified:
+            raise RuntimeError("Could not qualify SDEX index contract.")
+        return qualified[0]
+
+    def _market_price(self, contract: Any) -> float | None:
+        ticker = self.ib.reqMktData(contract, "", False, False)
+        self.ib.sleep(2)
+        price = ticker.marketPrice()
+        self.ib.cancelMktData(contract)
+        return float(price) if price and price > 0 else None
+
+    def _historical_close(self, contract: Any, failures: list[str] | None = None) -> float | None:
+        failures = failures if failures is not None else []
+        for what_to_show in ("TRADES", "MIDPOINT"):
+            try:
+                bars = self.ib.reqHistoricalData(
+                    contract,
+                    endDateTime="",
+                    durationStr="5 D",
+                    barSizeSetting="1 day",
+                    whatToShow=what_to_show,
+                    useRTH=True,
+                    formatDate=1,
+                )
+            except Exception as error:
+                failures.append(f"historical {what_to_show} {type(error).__name__}: {error!r}")
+                continue
+            for bar in reversed(bars or []):
+                close = getattr(bar, "close", None)
+                if close and close > 0:
+                    return float(close)
+            failures.append(f"historical {what_to_show}: no close")
+        return None
+
     def stage_held_combo_order(
         self,
         candidate: BatmanCandidate,

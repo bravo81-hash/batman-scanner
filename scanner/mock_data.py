@@ -63,6 +63,8 @@ def mock_scan(settings: ScanSettings) -> ScanResult:
     return ScanResult(
         settings=settings,
         candidates=ranked[: settings.max_results],
+        sdex_value=72.5,
+        sdex_source="mock SDEX",
         dte_neighborhoods=dte_neighborhoods,
         market_regime=market_regime,
         mock=True,

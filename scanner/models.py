@@ -230,6 +230,8 @@ class ScanResult:
     settings: ScanSettings
     candidates: list[BatmanCandidate]
     underlying_price: float | None = None
+    sdex_value: float | None = None
+    sdex_source: str = ""
     skipped_missing_data: int = 0
     skipped_filters: int = 0
     quote_counts_by_expiry: dict[str, dict[str, int | float]] = field(default_factory=dict)

@@ -44,14 +44,41 @@ class FakeIB:
     def __init__(self) -> None:
         self.placed_combo: Any | None = None
         self.placed_order: Any | None = None
+        self.cancelled_contract: Any | None = None
+        self.live_market_price = 72.5
+        self.historical_close = 71.25
+        self.raise_live_market_data = False
+        self.raise_trades_history = False
+        self.historical_requests: list[dict[str, Any]] = []
 
     def qualifyContracts(self, *contracts: Any) -> list[Any]:
-        return [SimpleNamespace(conId=index + 100) for index, _contract in enumerate(contracts)]
+        qualified = []
+        for index, contract in enumerate(contracts):
+            contract.conId = index + 100
+            qualified.append(contract)
+        return qualified
 
     def placeOrder(self, combo: Any, order: Any) -> Any:
         self.placed_combo = combo
         self.placed_order = order
         return SimpleNamespace(order=order, orderStatus=SimpleNamespace(status="PendingSubmit"))
+
+    def reqMktData(self, contract: Any, *_args: Any) -> Any:
+        if self.raise_live_market_data:
+            raise TimeoutError()
+        self.requested_contract = contract
+        return SimpleNamespace(marketPrice=lambda: self.live_market_price)
+
+    def cancelMktData(self, contract: Any) -> None:
+        self.cancelled_contract = contract
+
+    def reqHistoricalData(self, contract: Any, **kwargs: Any) -> list[Any]:
+        self.historical_contract = contract
+        self.historical_kwargs = kwargs
+        self.historical_requests.append(kwargs)
+        if self.raise_trades_history and kwargs.get("whatToShow") == "TRADES":
+            raise TimeoutError()
+        return [SimpleNamespace(close=self.historical_close)]
 
     def sleep(self, _seconds: int) -> None:
         return None
@@ -91,21 +118,32 @@ class FakeLimitOrder:
         self.orderId = 123
 
 
+class FakeIndex:
+    def __init__(self, symbol: str, exchange: str, currency: str) -> None:
+        self.symbol = symbol
+        self.exchange = exchange
+        self.currency = currency
+        self.secType = "IND"
+
+
 class IbkrClientOrderTests(unittest.TestCase):
     def setUp(self) -> None:
         self.original_bag = ibkr_client.Bag
         self.original_option = ibkr_client.Option
         self.original_combo_leg = ibkr_client.ComboLeg
+        self.original_index = ibkr_client.Index
         self.original_limit_order = ibkr_client.LimitOrder
         ibkr_client.Bag = KeywordOnlyBag
         ibkr_client.Option = FakeOption
         ibkr_client.ComboLeg = SimpleNamespace
+        ibkr_client.Index = FakeIndex
         ibkr_client.LimitOrder = FakeLimitOrder
 
     def tearDown(self) -> None:
         ibkr_client.Bag = self.original_bag
         ibkr_client.Option = self.original_option
         ibkr_client.ComboLeg = self.original_combo_leg
+        ibkr_client.Index = self.original_index
         ibkr_client.LimitOrder = self.original_limit_order
 
     def test_stage_held_combo_order_builds_bag_with_keyword_arguments(self) -> None:
@@ -124,6 +162,53 @@ class IbkrClientOrderTests(unittest.TestCase):
         self.assertEqual(client.ib.placed_combo.currency, "USD")
         self.assertEqual(payload["order_id"], 123)
         self.assertFalse(client.ib.placed_order.transmit)
+
+    def test_get_sdex_value_qualifies_nasdaq_index_and_returns_market_price(self) -> None:
+        client = ibkr_client.IBKRClient.__new__(ibkr_client.IBKRClient)
+        client.ib = FakeIB()
+
+        sdex_value = client.get_sdex_value()
+
+        self.assertEqual(sdex_value, 72.5)
+        self.assertEqual(client.ib.requested_contract.symbol, "SDEX")
+        self.assertEqual(client.ib.requested_contract.exchange, "NASDAQ")
+        self.assertEqual(client.ib.requested_contract.currency, "USD")
+        self.assertIs(client.ib.cancelled_contract, client.ib.requested_contract)
+
+    def test_get_sdex_snapshot_falls_back_to_ibkr_previous_close_when_live_unavailable(self) -> None:
+        client = ibkr_client.IBKRClient.__new__(ibkr_client.IBKRClient)
+        client.ib = FakeIB()
+        client.ib.live_market_price = None
+
+        sdex_value, source = client.get_sdex_snapshot()
+
+        self.assertEqual(sdex_value, 71.25)
+        self.assertEqual(source, "IBKR SDEX previous close")
+        self.assertEqual(client.ib.historical_contract.symbol, "SDEX")
+        self.assertEqual(client.ib.historical_kwargs["durationStr"], "5 D")
+        self.assertEqual(client.ib.historical_kwargs["barSizeSetting"], "1 day")
+
+    def test_get_sdex_snapshot_still_tries_previous_close_when_live_request_times_out(self) -> None:
+        client = ibkr_client.IBKRClient.__new__(ibkr_client.IBKRClient)
+        client.ib = FakeIB()
+        client.ib.raise_live_market_data = True
+
+        sdex_value, source = client.get_sdex_snapshot()
+
+        self.assertEqual(sdex_value, 71.25)
+        self.assertEqual(source, "IBKR SDEX previous close")
+
+    def test_get_sdex_snapshot_tries_midpoint_history_when_trades_history_times_out(self) -> None:
+        client = ibkr_client.IBKRClient.__new__(ibkr_client.IBKRClient)
+        client.ib = FakeIB()
+        client.ib.live_market_price = None
+        client.ib.raise_trades_history = True
+
+        sdex_value, source = client.get_sdex_snapshot()
+
+        self.assertEqual(sdex_value, 71.25)
+        self.assertEqual(source, "IBKR SDEX previous close")
+        self.assertEqual([request["whatToShow"] for request in client.ib.historical_requests], ["TRADES", "MIDPOINT"])
 
 
 if __name__ == "__main__":

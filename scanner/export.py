@@ -8,6 +8,12 @@ from io import StringIO
 from scanner.models import BatmanCandidate
 
 
+def _rounded_optional(value: float | None, digits: int) -> float | None:
+    if value is None:
+        return None
+    return round(value, digits)
+
+
 def candidates_to_csv(candidates: list[BatmanCandidate]) -> str:
     """Return CSV text with one row per leg."""
     output = StringIO()
@@ -31,6 +37,11 @@ def candidates_to_csv(candidates: list[BatmanCandidate]) -> str:
             "vega",
             "gamma",
             "implied_vol",
+            "bqi_v4_proxy",
+            "bqi_v4_percentile",
+            "tx_score_v7_proxy",
+            "tx_score_v7_percentile",
+            "research_quality",
         ]
     )
     for candidate in candidates:
@@ -55,6 +66,11 @@ def candidates_to_csv(candidates: list[BatmanCandidate]) -> str:
                     quote.vega,
                     quote.gamma,
                     quote.implied_vol,
+                    _rounded_optional(candidate.bqi_v4_proxy, 4),
+                    _rounded_optional(candidate.bqi_v4_percentile, 1),
+                    _rounded_optional(candidate.tx_score_v7_proxy, 4),
+                    _rounded_optional(candidate.tx_score_v7_percentile, 1),
+                    candidate.research_quality_bucket,
                 ]
             )
     return output.getvalue()

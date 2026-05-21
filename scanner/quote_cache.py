@@ -51,10 +51,23 @@ def init_quote_cache(db_path: str = DEFAULT_QUOTE_CACHE_PATH) -> None:
             CREATE TABLE IF NOT EXISTS quote_cache_meta (
                 symbol TEXT PRIMARY KEY,
                 underlying_price REAL,
+                sdex_value REAL,
+                sdex_source TEXT,
+                sdex_updated_at TEXT,
                 updated_at TEXT NOT NULL
             )
             """
         )
+        existing_meta_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(quote_cache_meta)").fetchall()
+        }
+        if "sdex_value" not in existing_meta_columns:
+            connection.execute("ALTER TABLE quote_cache_meta ADD COLUMN sdex_value REAL")
+        if "sdex_source" not in existing_meta_columns:
+            connection.execute("ALTER TABLE quote_cache_meta ADD COLUMN sdex_source TEXT")
+        if "sdex_updated_at" not in existing_meta_columns:
+            connection.execute("ALTER TABLE quote_cache_meta ADD COLUMN sdex_updated_at TEXT")
 
 
 def save_quotes(
@@ -130,6 +143,33 @@ def save_cache_underlying_price(
         )
 
 
+def save_cache_sdex_snapshot(
+    symbol: str,
+    sdex_value: float | None,
+    sdex_source: str,
+    db_path: str = DEFAULT_QUOTE_CACHE_PATH,
+    timestamp: datetime | None = None,
+) -> None:
+    """Store the SDEX snapshot available when the quote cache was refreshed."""
+    if sdex_value is None or sdex_value <= 0:
+        return
+    init_quote_cache(db_path)
+    updated_at = (timestamp or datetime.now()).isoformat(timespec="seconds")
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO quote_cache_meta (symbol, sdex_value, sdex_source, sdex_updated_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(symbol) DO UPDATE SET
+                sdex_value = excluded.sdex_value,
+                sdex_source = excluded.sdex_source,
+                sdex_updated_at = excluded.sdex_updated_at,
+                updated_at = excluded.updated_at
+            """,
+            (symbol, float(sdex_value), sdex_source, updated_at, updated_at),
+        )
+
+
 def _is_fresh(updated_at: str, max_age_seconds: int) -> bool:
     try:
         timestamp = datetime.fromisoformat(updated_at)
@@ -157,6 +197,26 @@ def load_cache_underlying_price(
     if not _is_fresh(str(updated_at), max_age_seconds):
         return None
     return float(underlying_price) if underlying_price and underlying_price > 0 else None
+
+
+def load_cache_sdex_snapshot(
+    symbol: str,
+    max_age_seconds: int,
+    db_path: str = DEFAULT_QUOTE_CACHE_PATH,
+) -> tuple[float | None, str]:
+    """Load a fresh cached SDEX snapshot for the symbol."""
+    init_quote_cache(db_path)
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT sdex_value, sdex_source, sdex_updated_at FROM quote_cache_meta WHERE symbol = ?",
+            (symbol,),
+        ).fetchone()
+    if row is None:
+        return None, ""
+    sdex_value, sdex_source, updated_at = row
+    if not updated_at or not _is_fresh(str(updated_at), max_age_seconds):
+        return None, ""
+    return (float(sdex_value), str(sdex_source or "cached SDEX")) if sdex_value and sdex_value > 0 else (None, "")
 
 
 def load_cached_quotes(
@@ -233,7 +293,10 @@ def quote_cache_stats(symbol: str, db_path: str = DEFAULT_QUOTE_CACHE_PATH) -> d
             (symbol,),
         ).fetchone()[0]
         meta = connection.execute(
-            "SELECT underlying_price, updated_at FROM quote_cache_meta WHERE symbol = ?",
+            """
+            SELECT underlying_price, updated_at, sdex_value, sdex_source, sdex_updated_at
+            FROM quote_cache_meta WHERE symbol = ?
+            """,
             (symbol,),
         ).fetchone()
     return {
@@ -242,6 +305,9 @@ def quote_cache_stats(symbol: str, db_path: str = DEFAULT_QUOTE_CACHE_PATH) -> d
         "newest_update": newest or "",
         "underlying_price": float(meta[0]) if meta and meta[0] else None,
         "underlying_price_updated_at": meta[1] if meta else "",
+        "sdex_value": float(meta[2]) if meta and meta[2] else None,
+        "sdex_source": meta[3] if meta and meta[3] else "",
+        "sdex_updated_at": meta[4] if meta and meta[4] else "",
     }
 
 
@@ -263,6 +329,7 @@ def cache_scan_result(
         return load_cached_quotes(settings.symbol, expiry, max_age_seconds, db_path)
 
     underlying_price = load_cache_underlying_price(settings.symbol, max_age_seconds, db_path)
+    sdex_value, sdex_source = load_cache_sdex_snapshot(settings.symbol, max_age_seconds, db_path)
 
     result = scan_from_quote_fetcher(
         settings,
@@ -271,6 +338,8 @@ def cache_scan_result(
         underlying_price=underlying_price,
     )
     result.underlying_price = underlying_price
+    result.sdex_value = sdex_value
+    result.sdex_source = sdex_source
     if not result.candidates:
         result.warnings.append("Cached quotes were available, but no candidates matched the filters.")
     return result

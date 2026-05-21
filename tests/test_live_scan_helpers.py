@@ -9,6 +9,8 @@ from scanner.ibkr_client import (
     runtime_diagnostics,
     summarize_chain,
 )
+from scanner.models import ScanResult, ScanSettings
+from scanner.research_scores import _quality_bucket
 from scanner.option_chain import select_candidate_strikes
 
 
@@ -113,6 +115,25 @@ class LiveScanHelperTests(unittest.TestCase):
         batches = list(chunk_items([1, 2], 0))
 
         self.assertEqual(batches, [[1], [2]])
+
+    def test_scan_result_carries_live_sdex_value(self) -> None:
+        result = ScanResult(settings=ScanSettings(), candidates=[], sdex_value=72.5, sdex_source="IBKR SDEX")
+
+        self.assertEqual(result.sdex_value, 72.5)
+        self.assertEqual(result.sdex_source, "IBKR SDEX")
+
+    def test_research_quality_bucket_uses_candidate_bqi_and_tx_not_sdex_proxy(self) -> None:
+        candidate = type(
+            "Candidate",
+            (),
+            {
+                "bqi_v4_percentile": 82.0,
+                "tx_score_v7_percentile": 84.0,
+                "sdex_percentile": 10.0,
+            },
+        )()
+
+        self.assertEqual(_quality_bucket(candidate), "elite")
 
 
 if __name__ == "__main__":

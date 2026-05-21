@@ -7,9 +7,11 @@ from scanner.models import OptionQuote, ScanSettings
 from scanner.quote_cache import (
     cache_scan_result,
     load_cache_underlying_price,
+    load_cache_sdex_snapshot,
     load_cached_quotes,
     quote_cache_stats,
     save_cache_underlying_price,
+    save_cache_sdex_snapshot,
     save_quotes,
 )
 
@@ -80,6 +82,19 @@ class QuoteCacheTests(unittest.TestCase):
             stats = quote_cache_stats("SPX", db_path=db_path)
             self.assertEqual(stats["underlying_price"], 7275.5)
 
+    def test_save_and_load_cache_sdex_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = str(Path(tmp) / "quotes.db")
+
+            save_cache_sdex_snapshot("SPX", 71.25, "IBKR SDEX previous close", db_path=db_path)
+
+            value, source = load_cache_sdex_snapshot("SPX", max_age_seconds=3600, db_path=db_path)
+            self.assertEqual(value, 71.25)
+            self.assertEqual(source, "IBKR SDEX previous close")
+            stats = quote_cache_stats("SPX", db_path=db_path)
+            self.assertEqual(stats["sdex_value"], 71.25)
+            self.assertEqual(stats["sdex_source"], "IBKR SDEX previous close")
+
     def test_cache_scan_result_builds_from_cached_quotes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = str(Path(tmp) / "quotes.db")
@@ -91,11 +106,14 @@ class QuoteCacheTests(unittest.TestCase):
             back = [make_quote("20270416", 5600, 33, bid=12, ask=13)]
             save_quotes("SPX", front + back, db_path=db_path)
             save_cache_underlying_price("SPX", 7275.5, db_path=db_path)
+            save_cache_sdex_snapshot("SPX", 71.25, "IBKR SDEX previous close", db_path=db_path)
 
             result = cache_scan_result(ScanSettings(), max_age_seconds=3600, db_path=db_path)
 
             self.assertGreaterEqual(len(result.candidates), 1)
             self.assertEqual(result.underlying_price, 7275.5)
+            self.assertEqual(result.sdex_value, 71.25)
+            self.assertEqual(result.sdex_source, "IBKR SDEX previous close")
             self.assertTrue(result.warnings == [] or isinstance(result.warnings[0], str))
 
 

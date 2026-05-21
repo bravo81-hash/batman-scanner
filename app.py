@@ -29,6 +29,44 @@ from scanner.trade_diagnostics import DiagnosticInput, DiagnosticReport, MarketP
 st.set_page_config(page_title="Batman Scanner", layout="wide")
 
 DIAGNOSIS_MARKET_SYMBOLS: tuple[str, ...] = ("SPX", "VIX", "VIX9D", "VIX1D", "VIX3M", "VIX6M", "VVIX")
+SDEX_HIGH_SKEW_LEVEL = 80.0
+SDEX_CONSTRUCTIVE_LEVEL = 60.0
+
+
+def rounded_optional(value: float | None, digits: int) -> float | None:
+    if value is None:
+        return None
+    return round(value, digits)
+
+
+def exception_detail(error: Exception) -> str:
+    return str(error) or repr(error)
+
+
+def sdex_regime_summary(sdex_value: float | None, source: str) -> dict[str, str]:
+    """Return the live SDEX regime read used for pre-entry selection."""
+    if sdex_value is None or sdex_value <= 0:
+        return {
+            "SDEX": "unavailable",
+            "source": source or "none",
+            "regime": "unknown",
+            "entry bias": "no SDEX read",
+        }
+    if sdex_value >= SDEX_HIGH_SKEW_LEVEL:
+        regime = "high skew"
+        bias = "favorable"
+    elif sdex_value >= SDEX_CONSTRUCTIVE_LEVEL:
+        regime = "constructive skew"
+        bias = "selective"
+    else:
+        regime = "low skew"
+        bias = "caution"
+    return {
+        "SDEX": f"{sdex_value:.2f}",
+        "source": source or "IBKR SDEX",
+        "regime": regime,
+        "entry bias": bias,
+    }
 
 
 @st.cache_resource
@@ -72,6 +110,39 @@ def candidate_rows(candidates: list[BatmanCandidate]) -> list[dict[str, Any]]:
                 "DTE anchor score": round(candidate.dte_anchor_score, 4),
                 "liquidity score": round(candidate.liquidity_score, 4),
                 "shape quality score": round(candidate.shape_quality_score, 4),
+                "BQI v4 proxy": rounded_optional(candidate.bqi_v4_proxy, 4),
+                "BQI v4 percentile": rounded_optional(candidate.bqi_v4_percentile, 1),
+                "TX_SCORE v7 proxy": rounded_optional(candidate.tx_score_v7_proxy, 4),
+                "TX_SCORE v7 percentile": rounded_optional(candidate.tx_score_v7_percentile, 1),
+                "research quality": candidate.research_quality_bucket,
+            }
+        )
+    return rows
+
+
+def candidate_decision_rows(candidates: list[BatmanCandidate]) -> list[dict[str, Any]]:
+    """Return the compact pre-entry candidate table."""
+    rows: list[dict[str, Any]] = []
+    for candidate in candidates:
+        rows.append(
+            {
+                "rank": candidate.rank,
+                "quality": candidate.research_quality_bucket,
+                "BQI %": rounded_optional(candidate.bqi_v4_percentile, 1),
+                "TX %": rounded_optional(candidate.tx_score_v7_percentile, 1),
+                "score": round(candidate.score, 4),
+                "credit": round(candidate.entry_credit, 2),
+                "delta": round(candidate.position_delta, 2),
+                "theta": round(candidate.position_theta, 2),
+                "D/T": round(candidate.delta_theta_ratio, 4),
+                "liquidity": round(candidate.liquidity_score, 4),
+                "front DTE": candidate.front_dte,
+                "back DTE": candidate.back_dte,
+                "strikes": (
+                    f"{candidate.sc_high.quote.strike:g}/"
+                    f"{candidate.lc_mid.quote.strike:g}/"
+                    f"{candidate.sc_low.quote.strike:g}"
+                ),
             }
         )
     return rows
@@ -189,6 +260,15 @@ def show_candidate_efficiency(result: ScanResult) -> None:
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
+def show_sdex_regime(result: ScanResult) -> None:
+    summary = sdex_regime_summary(result.sdex_value, result.sdex_source)
+    cols = st.columns([1, 1, 1, 2])
+    cols[0].metric("SDEX", summary["SDEX"])
+    cols[1].metric("Regime", summary["regime"])
+    cols[2].metric("Entry bias", summary["entry bias"])
+    cols[3].caption(f"Source: {summary['source']}")
+
+
 def macro_assumption_rows(
     risk_free_rate: float,
     dividend_yield: float,
@@ -255,35 +335,8 @@ def quote_count_rows(result: ScanResult) -> list[dict[str, Any]]:
 
 
 def sidebar_settings(defaults: ScanSettings, ib_defaults: dict[str, Any]) -> tuple[ScanSettings, dict[str, Any]]:
-    st.sidebar.header("Connection")
-    host = st.sidebar.text_input("Host", value=str(ib_defaults["host"]))
-    port = st.sidebar.selectbox("Port", options=[7497, 7496, 4001, 4002], index=[7497, 7496, 4001, 4002].index(int(ib_defaults["port"])))
-    client_id = st.sidebar.number_input("Client ID", min_value=1, max_value=999, value=int(ib_defaults["client_id"]))
-    market_data_type = st.sidebar.selectbox(
-        "Market data type",
-        options=["Live", "Frozen", "Delayed", "Delayed frozen"],
-        index=0,
-        help="Use Frozen or Delayed frozen outside market hours if your IBKR permissions allow it.",
-    )
-    manual_underlying_price = st.sidebar.number_input(
-        "Manual underlying price",
-        min_value=0.0,
-        value=0.0,
-        step=1.0,
-        help="Optional off-hours fallback for strike filtering when IBKR cannot provide an underlying price.",
-    )
-    risk_chart_spot = st.sidebar.number_input(
-        "Risk chart spot price",
-        min_value=0.0,
-        value=float(manual_underlying_price),
-        step=1.0,
-        help="Used for selected-candidate risk charts when IBKR spot is unavailable.",
-    )
-
-    st.sidebar.header("Scanner")
+    st.sidebar.header("Pre-Entry Setup")
     symbol = st.sidebar.text_input("Underlying symbol", value=defaults.symbol).upper()
-    exchange = st.sidebar.text_input("Exchange", value=defaults.exchange)
-    currency = st.sidebar.text_input("Currency", value=defaults.currency)
     strategy_preset_options = {
         "Dynamic Batman grid": "dynamic_batman_grid",
         "Buddy 54-32-3": "buddy_54_32_3",
@@ -298,139 +351,172 @@ def sidebar_settings(defaults: ScanSettings, ib_defaults: dict[str, Any]) -> tup
         options=list(strategy_preset_options.keys()),
         index=list(strategy_preset_options.keys()).index(default_preset_label),
     )
-    min_front_dte = st.sidebar.number_input("Min front DTE", min_value=1, value=defaults.min_front_dte)
-    max_dte = st.sidebar.number_input("Max DTE", min_value=1, value=defaults.max_dte)
-    min_dte_gap = st.sidebar.number_input("Min front/back DTE gap", min_value=1, value=defaults.min_dte_gap)
-    max_dte_gap = st.sidebar.number_input("Max front/back DTE gap", min_value=1, value=defaults.max_dte_gap)
-    expiry_pairing_options = {
-        "All valid pairs": "all_pairs",
-        "Adjacent only": "adjacent_only",
-        "First valid far": "first_valid_far",
-    }
-    default_pairing_label = next(
-        (label for label, value in expiry_pairing_options.items() if value == defaults.expiry_pairing_mode),
-        "All valid pairs",
-    )
-    expiry_pairing_label = st.sidebar.selectbox(
-        "Expiry pairing mode",
-        options=list(expiry_pairing_options.keys()),
-        index=list(expiry_pairing_options.keys()).index(default_pairing_label),
-    )
-    dte_selection_options = {
-        "Range": "range",
-        "Target front/back": "target",
-    }
-    default_dte_selection_label = next(
-        (label for label, value in dte_selection_options.items() if value == defaults.dte_selection_mode),
-        "Range",
-    )
-    dte_selection_label = st.sidebar.selectbox(
-        "DTE selection mode",
-        options=list(dte_selection_options.keys()),
-        index=list(dte_selection_options.keys()).index(default_dte_selection_label),
-    )
-    front_target_dte = st.sidebar.number_input("Front target DTE", min_value=1, value=defaults.front_target_dte)
-    back_target_dte = st.sidebar.number_input("Back target DTE", min_value=1, value=defaults.back_target_dte)
-    dte_tolerance = st.sidebar.number_input("Target DTE tolerance", min_value=0, value=defaults.dte_tolerance)
-
-    st.sidebar.header("Delta Targets")
-    sc_high_min_delta = st.sidebar.number_input("SC_High min delta", min_value=1, max_value=100, value=defaults.sc_high_min_delta)
-    sc_high_max_delta = st.sidebar.number_input("SC_High max delta", min_value=1, max_value=100, value=defaults.sc_high_max_delta)
-    sc_high_delta_step = st.sidebar.number_input("SC_High delta step", min_value=1, max_value=20, value=defaults.sc_high_delta_step)
-    lc_mid_min_offset = st.sidebar.number_input("LC_Mid min offset", min_value=1, max_value=50, value=defaults.lc_mid_min_offset)
-    lc_mid_max_offset = st.sidebar.number_input("LC_Mid max offset", min_value=1, max_value=50, value=defaults.lc_mid_max_offset)
-    lc_mid_offset_step = st.sidebar.number_input("LC_Mid offset step", min_value=1, max_value=20, value=defaults.lc_mid_offset_step)
-    target_trade_delta = st.sidebar.slider("Target total trade delta", min_value=1.0, max_value=5.0, value=float(defaults.target_trade_delta), step=0.5)
-    min_credit = st.sidebar.number_input("Minimum entry credit", value=float(defaults.min_credit), step=0.5)
-    require_positive_theta = st.sidebar.checkbox("Require positive theta", value=defaults.require_positive_theta)
     max_results = st.sidebar.number_input("Max results", min_value=1, max_value=100, value=defaults.max_results)
-    scoring_options = {
-        "Theta-first Batman": "theta_first",
-        "Balanced delta/credit": "balanced",
-        "Delta/theta ratio": "delta_theta_ratio",
-    }
-    default_scoring_label = next(
-        (label for label, value in scoring_options.items() if value == defaults.scoring_mode),
-        "Theta-first Batman",
-    )
-    scoring_mode_label = st.sidebar.selectbox(
-        "Scoring mode",
-        options=list(scoring_options.keys()),
-        index=list(scoring_options.keys()).index(default_scoring_label),
-        help="Theta-first ranks mostly by position theta, then credit. Balanced keeps the original delta/credit/DTE score.",
-    )
-
-    st.sidebar.header("Quote Cache")
     use_quote_cache = st.sidebar.checkbox(
         "Run scan from quote cache",
         value=True,
         help="Use locally cached quotes for faster ranking. Refresh the cache separately from IBKR.",
     )
-    cache_max_age_minutes = st.sidebar.number_input(
-        "Cache max age minutes",
-        min_value=1,
-        max_value=1440,
-        value=30,
-    )
-    max_contracts_per_expiry = st.sidebar.number_input(
-        "Max contracts per expiry",
-        min_value=20,
-        max_value=250,
-        value=defaults.max_contracts_per_expiry,
-        help="Total strike count to inspect for each expiry.",
-    )
-    upside_strike_multiplier = st.sidebar.number_input(
-        "Upside strike multiplier",
-        min_value=1.05,
-        max_value=2.50,
-        value=float(defaults.upside_strike_multiplier),
-        step=0.05,
-        help="Upper strike collection bound as a multiple of spot. Higher values include farther OTM calls.",
-    )
-    strike_increment_options = {
-        "Any strike": 0,
-        "5-point": 5,
-        "10-point": 10,
-        "25-point": 25,
-    }
-    default_strike_increment_label = next(
-        (label for label, value in strike_increment_options.items() if value == defaults.strike_increment),
-        "Any strike",
-    )
-    strike_increment_label = st.sidebar.selectbox(
-        "Strike increment",
-        options=list(strike_increment_options.keys()),
-        index=list(strike_increment_options.keys()).index(default_strike_increment_label),
-        help="Optional strike grid filter for cleaner OptionNet modelling and faster live quote collection.",
-    )
-    market_data_batch_size = st.sidebar.number_input(
-        "Market data batch size",
-        min_value=10,
-        max_value=95,
-        value=min(defaults.market_data_batch_size, 95),
-        help="Maximum simultaneous option market-data requests. Keep below your IBKR line limit.",
-    )
 
-    st.sidebar.header("Risk Chart Assumptions")
-    auto_fetch_macro = st.sidebar.checkbox(
-        "Auto-fetch macro assumptions",
-        value=False,
-        help="Optional. Used only for risk chart modelling, never for candidate generation or IBKR orders.",
-    )
-    manual_risk_free_rate_pct = st.sidebar.number_input(
-        "Risk-free rate %",
-        min_value=0.0,
-        max_value=20.0,
-        value=float(defaults.risk_free_rate * 100),
-        step=0.05,
-    )
-    manual_dividend_yield_pct = st.sidebar.number_input(
-        "Dividend yield %",
-        min_value=0.0,
-        max_value=10.0,
-        value=float(defaults.dividend_yield * 100),
-        step=0.05,
-    )
+    with st.sidebar.expander("Connection", expanded=False):
+        host = st.text_input("Host", value=str(ib_defaults["host"]))
+        port = st.selectbox(
+            "Port",
+            options=[7497, 7496, 4001, 4002],
+            index=[7497, 7496, 4001, 4002].index(int(ib_defaults["port"])),
+        )
+        client_id = st.number_input("Client ID", min_value=1, max_value=999, value=int(ib_defaults["client_id"]))
+        market_data_type = st.selectbox(
+            "Market data type",
+            options=["Live", "Frozen", "Delayed", "Delayed frozen"],
+            index=0,
+            help="Use Frozen or Delayed frozen outside market hours if your IBKR permissions allow it.",
+        )
+        manual_underlying_price = st.number_input(
+            "Manual underlying price",
+            min_value=0.0,
+            value=0.0,
+            step=1.0,
+            help="Optional off-hours fallback for strike filtering when IBKR cannot provide an underlying price.",
+        )
+        risk_chart_spot = st.number_input(
+            "Risk chart spot price",
+            min_value=0.0,
+            value=float(manual_underlying_price),
+            step=1.0,
+            help="Used for selected-candidate risk charts when IBKR spot is unavailable.",
+        )
+        exchange = st.text_input("Exchange", value=defaults.exchange)
+        currency = st.text_input("Currency", value=defaults.currency)
+
+    with st.sidebar.expander("DTE Selection", expanded=False):
+        min_front_dte = st.number_input("Min front DTE", min_value=1, value=defaults.min_front_dte)
+        max_dte = st.number_input("Max DTE", min_value=1, value=defaults.max_dte)
+        min_dte_gap = st.number_input("Min front/back DTE gap", min_value=1, value=defaults.min_dte_gap)
+        max_dte_gap = st.number_input("Max front/back DTE gap", min_value=1, value=defaults.max_dte_gap)
+        dte_selection_options = {
+            "Range": "range",
+            "Target front/back": "target",
+        }
+        default_dte_selection_label = next(
+            (label for label, value in dte_selection_options.items() if value == defaults.dte_selection_mode),
+            "Range",
+        )
+        dte_selection_label = st.selectbox(
+            "DTE selection mode",
+            options=list(dte_selection_options.keys()),
+            index=list(dte_selection_options.keys()).index(default_dte_selection_label),
+        )
+        front_target_dte = st.number_input("Front target DTE", min_value=1, value=defaults.front_target_dte)
+        back_target_dte = st.number_input("Back target DTE", min_value=1, value=defaults.back_target_dte)
+        dte_tolerance = st.number_input("Target DTE tolerance", min_value=0, value=defaults.dte_tolerance)
+        expiry_pairing_options = {
+            "All valid pairs": "all_pairs",
+            "Adjacent only": "adjacent_only",
+            "First valid far": "first_valid_far",
+        }
+        default_pairing_label = next(
+            (label for label, value in expiry_pairing_options.items() if value == defaults.expiry_pairing_mode),
+            "All valid pairs",
+        )
+        expiry_pairing_label = st.selectbox(
+            "Expiry pairing mode",
+            options=list(expiry_pairing_options.keys()),
+            index=list(expiry_pairing_options.keys()).index(default_pairing_label),
+        )
+
+    with st.sidebar.expander("Delta, Credit, Scoring", expanded=False):
+        sc_high_min_delta = st.number_input("SC_High min delta", min_value=1, max_value=100, value=defaults.sc_high_min_delta)
+        sc_high_max_delta = st.number_input("SC_High max delta", min_value=1, max_value=100, value=defaults.sc_high_max_delta)
+        sc_high_delta_step = st.number_input("SC_High delta step", min_value=1, max_value=20, value=defaults.sc_high_delta_step)
+        lc_mid_min_offset = st.number_input("LC_Mid min offset", min_value=1, max_value=50, value=defaults.lc_mid_min_offset)
+        lc_mid_max_offset = st.number_input("LC_Mid max offset", min_value=1, max_value=50, value=defaults.lc_mid_max_offset)
+        lc_mid_offset_step = st.number_input("LC_Mid offset step", min_value=1, max_value=20, value=defaults.lc_mid_offset_step)
+        target_trade_delta = st.slider("Target total trade delta", min_value=1.0, max_value=5.0, value=float(defaults.target_trade_delta), step=0.5)
+        min_credit = st.number_input("Minimum entry credit", value=float(defaults.min_credit), step=0.5)
+        require_positive_theta = st.checkbox("Require positive theta", value=defaults.require_positive_theta)
+        scoring_options = {
+            "Theta-first Batman": "theta_first",
+            "Balanced delta/credit": "balanced",
+            "Delta/theta ratio": "delta_theta_ratio",
+        }
+        default_scoring_label = next(
+            (label for label, value in scoring_options.items() if value == defaults.scoring_mode),
+            "Theta-first Batman",
+        )
+        scoring_mode_label = st.selectbox(
+            "Scoring mode",
+            options=list(scoring_options.keys()),
+            index=list(scoring_options.keys()).index(default_scoring_label),
+            help="Theta-first ranks mostly by position theta, then credit. Balanced keeps the original delta/credit/DTE score.",
+        )
+
+    with st.sidebar.expander("Quote Collection", expanded=False):
+        cache_max_age_minutes = st.number_input(
+            "Cache max age minutes",
+            min_value=1,
+            max_value=1440,
+            value=30,
+        )
+        max_contracts_per_expiry = st.number_input(
+            "Max contracts per expiry",
+            min_value=20,
+            max_value=250,
+            value=defaults.max_contracts_per_expiry,
+            help="Total strike count to inspect for each expiry.",
+        )
+        upside_strike_multiplier = st.number_input(
+            "Upside strike multiplier",
+            min_value=1.05,
+            max_value=2.50,
+            value=float(defaults.upside_strike_multiplier),
+            step=0.05,
+            help="Upper strike collection bound as a multiple of spot. Higher values include farther OTM calls.",
+        )
+        strike_increment_options = {
+            "Any strike": 0,
+            "5-point": 5,
+            "10-point": 10,
+            "25-point": 25,
+        }
+        default_strike_increment_label = next(
+            (label for label, value in strike_increment_options.items() if value == defaults.strike_increment),
+            "Any strike",
+        )
+        strike_increment_label = st.selectbox(
+            "Strike increment",
+            options=list(strike_increment_options.keys()),
+            index=list(strike_increment_options.keys()).index(default_strike_increment_label),
+            help="Optional strike grid filter for cleaner OptionNet modelling and faster live quote collection.",
+        )
+        market_data_batch_size = st.number_input(
+            "Market data batch size",
+            min_value=10,
+            max_value=95,
+            value=min(defaults.market_data_batch_size, 95),
+            help="Maximum simultaneous option market-data requests. Keep below your IBKR line limit.",
+        )
+
+    with st.sidebar.expander("Risk Chart Assumptions", expanded=False):
+        auto_fetch_macro = st.checkbox(
+            "Auto-fetch macro assumptions",
+            value=False,
+            help="Optional. Used only for risk chart modelling, never for candidate generation or IBKR orders.",
+        )
+        manual_risk_free_rate_pct = st.number_input(
+            "Risk-free rate %",
+            min_value=0.0,
+            max_value=20.0,
+            value=float(defaults.risk_free_rate * 100),
+            step=0.05,
+        )
+        manual_dividend_yield_pct = st.number_input(
+            "Dividend yield %",
+            min_value=0.0,
+            max_value=10.0,
+            value=float(defaults.dividend_yield * 100),
+            step=0.05,
+        )
     try:
         risk_free_rate, dividend_yield, macro_source = resolve_macro_inputs(
             auto_fetch=auto_fetch_macro,
@@ -517,6 +603,11 @@ def show_candidate_details(candidates: list[BatmanCandidate]) -> None:
                     "dte_anchor_score": round(candidate.dte_anchor_score, 4),
                     "liquidity_score": round(candidate.liquidity_score, 4),
                     "shape_quality_score": round(candidate.shape_quality_score, 4),
+                    "bqi_v4_proxy": rounded_optional(candidate.bqi_v4_proxy, 4),
+                    "bqi_v4_percentile": rounded_optional(candidate.bqi_v4_percentile, 1),
+                    "tx_score_v7_proxy": rounded_optional(candidate.tx_score_v7_proxy, 4),
+                    "tx_score_v7_percentile": rounded_optional(candidate.tx_score_v7_percentile, 1),
+                    "research_quality": candidate.research_quality_bucket,
                     "spread_penalty": round(candidate.spread_penalty, 4),
                 }
             )
@@ -837,10 +928,8 @@ def show_results_workspace(
     connection: dict[str, Any],
     status_box: Any,
 ) -> None:
-    """Show candidate list and selected risk chart side by side."""
-    show_market_regime(result)
-    show_dte_neighborhoods(result)
-    show_candidate_efficiency(result)
+    """Show the streamlined pre-entry candidate selection workspace."""
+    show_sdex_regime(result)
 
     left, right = st.columns([0.34, 0.66], gap="large")
     label_by_rank = {candidate.rank: candidate_picker_label(candidate) for candidate in result.candidates}
@@ -855,7 +944,7 @@ def show_results_workspace(
         )
 
         with st.expander("Full Candidate Table", expanded=False):
-            st.dataframe(pd.DataFrame(candidate_rows(result.candidates)), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(candidate_decision_rows(result.candidates)), use_container_width=True, hide_index=True)
 
         csv_text = candidates_to_csv(result.candidates)
         st.download_button(
@@ -887,17 +976,6 @@ def show_results_workspace(
                 hide_index=True,
             )
 
-        show_trade_outcome_diagnosis(selected_candidate)
-
-        benchmark_rows: list[dict[str, Any]] = []
-        if result.canonical_candidate is not None:
-            benchmark_rows.extend(benchmark_candidate_rows([result.canonical_candidate], "canonical 54/32"))
-        if result.sweep_candidates:
-            benchmark_rows.extend(benchmark_candidate_rows(result.sweep_candidates, "constrained sweep"))
-        if benchmark_rows:
-            with st.expander("Benchmark Comparison", expanded=False):
-                st.dataframe(pd.DataFrame(benchmark_rows), use_container_width=True, hide_index=True)
-
         with st.expander("Selected Candidate Legs", expanded=True):
             st.dataframe(
                 pd.DataFrame(selected_candidate_detail_rows(selected_candidate)),
@@ -906,6 +984,28 @@ def show_results_workspace(
             )
 
         show_held_order_panel(selected_candidate, result, risk_settings, connection, status_box)
+
+        with st.expander("Advanced Candidate Diagnostics", expanded=False):
+            efficiency = efficiency_rows(result.candidates)
+            if efficiency:
+                st.write("Candidate efficiency")
+                st.dataframe(pd.DataFrame(efficiency), use_container_width=True, hide_index=True)
+            benchmark_rows: list[dict[str, Any]] = []
+            if result.canonical_candidate is not None:
+                benchmark_rows.extend(benchmark_candidate_rows([result.canonical_candidate], "canonical 54/32"))
+            if result.sweep_candidates:
+                benchmark_rows.extend(benchmark_candidate_rows(result.sweep_candidates, "constrained sweep"))
+            if benchmark_rows:
+                st.write("Benchmark comparison")
+                st.dataframe(pd.DataFrame(benchmark_rows), use_container_width=True, hide_index=True)
+            market_regime = market_regime_rows(result.market_regime)
+            if market_regime:
+                st.write("Scanner market-regime proxy")
+                st.dataframe(pd.DataFrame(market_regime), use_container_width=True, hide_index=True)
+            neighborhoods = dte_neighborhood_rows(result.dte_neighborhoods)
+            if neighborhoods:
+                st.write("DTE neighborhoods")
+                st.dataframe(pd.DataFrame(neighborhoods), use_container_width=True, hide_index=True)
 
 
 def run_ibkr_scan(settings: ScanSettings, connection: dict[str, Any], status_box: Any) -> ScanResult:
@@ -923,6 +1023,14 @@ def run_ibkr_scan(settings: ScanSettings, connection: dict[str, Any], status_box
             ibkr_underlying_price,
             connection.get("manual_underlying_price"),
         )
+        status_box.info("fetching SDEX")
+        try:
+            sdex_value, sdex_source = client.get_sdex_snapshot()
+        except Exception as error:
+            sdex_value = None
+            detail = exception_detail(error)
+            sdex_source = f"IBKR SDEX unavailable: {detail}"
+            st.warning(f"SDEX fetch failed: {detail}")
         if underlying_price is None:
             st.warning("Could not read an underlying price. Strike filtering will use a centered chain slice.")
         elif ibkr_underlying_price is None:
@@ -935,6 +1043,8 @@ def run_ibkr_scan(settings: ScanSettings, connection: dict[str, Any], status_box
 
         result = scan_from_quote_fetcher(settings, expiries, fetch_quotes, status_box.info)
         result.underlying_price = underlying_price
+        result.sdex_value = sdex_value
+        result.sdex_source = sdex_source
         status_box.info("saving scan")
         save_scan_history(settings, result.candidates[:20])
         return result
@@ -955,6 +1065,14 @@ def run_ibkr_preflight(settings: ScanSettings, connection: dict[str, Any], statu
         chain = client.option_chain(underlying, settings)
         status_box.info("fetching underlying price")
         ibkr_underlying_price = client.get_underlying_price(underlying)
+        status_box.info("fetching SDEX")
+        try:
+            sdex_value, sdex_source = client.get_sdex_snapshot()
+        except Exception as error:
+            sdex_value = None
+            detail = exception_detail(error)
+            sdex_source = f"IBKR SDEX unavailable: {detail}"
+            st.warning(f"SDEX fetch failed: {detail}")
         underlying_price = resolve_underlying_price(
             ibkr_underlying_price,
             connection.get("manual_underlying_price"),
@@ -962,7 +1080,25 @@ def run_ibkr_preflight(settings: ScanSettings, connection: dict[str, Any], statu
         summary = summarize_chain(chain, underlying_price, settings.max_contracts_per_expiry)
         summary["ibkr_underlying_price"] = ibkr_underlying_price
         summary["manual_underlying_price"] = connection.get("manual_underlying_price") or None
+        summary["sdex_value"] = sdex_value
+        summary["sdex_source"] = sdex_source
         return summary
+    finally:
+        client.disconnect()
+
+
+def fetch_live_sdex_value(connection: dict[str, Any], status_box: Any) -> tuple[float | None, str]:
+    """Fetch SDEX without running a full option-chain scan."""
+    client = IBKRClient()
+    try:
+        status_box.info("fetching SDEX")
+        client.connect(connection["host"], connection["port"], int(connection["client_id"]) + 100)
+        client.set_market_data_type(connection["market_data_type"])
+        return client.get_sdex_snapshot()
+    except Exception as error:
+        detail = exception_detail(error)
+        status_box.warning(f"SDEX fetch failed: {detail}")
+        return None, f"IBKR SDEX unavailable: {detail}"
     finally:
         client.disconnect()
 
@@ -973,10 +1109,7 @@ def main() -> None:
     collector = get_quote_collector()
 
     st.title("Batman Scanner")
-    st.caption("Scanner with optional held TWS combo staging. Orders are untransmitted and must be reviewed in TWS.")
-
-    with st.expander("Runtime diagnostics"):
-        st.write(runtime_diagnostics())
+    st.caption("Pre-entry candidate selection with live SDEX, risk charts, and held TWS combo staging.")
 
     if "scan_result" not in st.session_state:
         st.session_state.scan_result = None
@@ -984,21 +1117,6 @@ def main() -> None:
         st.session_state.ibkr_preflight_summary = None
 
     status_box = st.empty()
-    cache_stats = quote_cache_stats(settings.symbol)
-    collector_status = collector.status()
-    with st.expander("Quote cache status", expanded=collector_status["running"]):
-        st.write(
-            {
-                "symbol": settings.symbol,
-                "cached_quotes": cache_stats["quote_count"],
-                "cached_expiries": cache_stats["expiry_count"],
-                "newest_update": cache_stats["newest_update"],
-                "underlying_price": cache_stats["underlying_price"],
-                "underlying_price_updated_at": cache_stats["underlying_price_updated_at"],
-                "collector": collector_status,
-            }
-        )
-
     col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
     with col1:
         connect_clicked = st.button("Connect to IBKR")
@@ -1009,7 +1127,26 @@ def main() -> None:
     with col4:
         run_clicked = st.button("Run Scan")
 
-    mock_mode = st.checkbox("Use MOCK DATA for UI testing", value=False)
+    cache_stats = quote_cache_stats(settings.symbol)
+    collector_status = collector.status()
+    with st.expander("Operations Status", expanded=collector_status["running"]):
+        st.write(
+            {
+                "symbol": settings.symbol,
+                "cached_quotes": cache_stats["quote_count"],
+                "cached_expiries": cache_stats["expiry_count"],
+                "newest_update": cache_stats["newest_update"],
+                "underlying_price": cache_stats["underlying_price"],
+                "underlying_price_updated_at": cache_stats["underlying_price_updated_at"],
+                "sdex_value": cache_stats["sdex_value"],
+                "sdex_source": cache_stats["sdex_source"],
+                "sdex_updated_at": cache_stats["sdex_updated_at"],
+                "collector": collector_status,
+            }
+        )
+        st.write("Runtime diagnostics")
+        st.write(runtime_diagnostics())
+        mock_mode = st.checkbox("Use MOCK DATA for UI testing", value=False)
 
     if connect_clicked:
         try:
@@ -1056,6 +1193,8 @@ def main() -> None:
                     settings,
                     max_age_seconds=connection["cache_max_age_seconds"],
                 )
+                if result.sdex_value is None:
+                    result.sdex_value, result.sdex_source = fetch_live_sdex_value(connection, status_box)
                 save_scan_history(settings, result.candidates[:20])
             else:
                 result = run_ibkr_scan(settings, connection, status_box)
